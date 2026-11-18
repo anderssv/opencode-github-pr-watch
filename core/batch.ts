@@ -1,3 +1,4 @@
+import { whoActs } from "./actor";
 import { parsePrReference } from "./github";
 import { nextStep, type PrFacts } from "./pr-facts";
 
@@ -25,8 +26,9 @@ export function batchProgress(label: string, all: readonly (PrFacts | undefined)
   const known = facts.filter((f): f is PrFacts => f !== undefined);
   const approved = known.filter((f) => f.review === "APPROVED" || f.review === "NOT_REQUIRED" || f.state === "MERGED").length;
   const merged = known.filter((f) => f.state === "MERGED").length;
-  const deployed = known.filter((f) => nextStep(f, now) === "DEPLOYED").length;
-  return `${label}: approved ${approved}/${total} · merged ${merged}/${total} · deployed ${deployed}/${total}${closed > 0 ? ` · closed ${closed}` : ""}`;
+  // Done as the watch sees it: deployed, or merged where nothing deploys.
+  const done = known.filter((f) => whoActs(f, now) === "done").length;
+  return `${label}: approved ${approved}/${total} · merged ${merged}/${total} · done ${done}/${total}${closed > 0 ? ` · closed ${closed}` : ""}`;
 }
 
 export function composeDigest(messages: readonly string[], progress: readonly string[]): string {

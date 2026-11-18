@@ -37,7 +37,7 @@ describe("batchProgress", () => {
       undefined,
     ];
 
-    expect(batchProgress("libexpat fix", facts, NOW)).toBe("libexpat fix: approved 3/5 · merged 2/5 · deployed 1/5");
+    expect(batchProgress("libexpat fix", facts, NOW)).toBe("libexpat fix: approved 3/5 · merged 2/5 · done 1/5");
   });
 });
 
@@ -65,7 +65,7 @@ describe("batch membership (plan 13)", () => {
   const batch = { label: "Bump x", members: ["o/r#1", "o/r#2"], facts: { "o/r#1": aFacts(), "o/r#2": aFacts() } };
 
   test("a closed PR is left out of the counts and shown apart", () => {
-    expect(batchProgress("Bump x", [aFacts({ review: "APPROVED" }), aFacts({ state: "CLOSED" })], NOW)).toBe("Bump x: approved 1/1 · merged 0/1 · deployed 0/1 · closed 1");
+    expect(batchProgress("Bump x", [aFacts({ review: "APPROVED" }), aFacts({ state: "CLOSED" })], NOW)).toBe("Bump x: approved 1/1 · merged 0/1 · done 0/1 · closed 1");
   });
 
   test("a followed replacement takes the closed PR's place", () => {
@@ -88,5 +88,13 @@ describe("batch membership (plan 13)", () => {
 describe("batch progress: a review that isn't required counts as approved", () => {
   test("approved when GitHub doesn't ask for a review", () => {
     expect(batchProgress("2 PRs", [aFacts({ review: "NOT_REQUIRED" }), aFacts({ review: "REVIEW_REQUIRED" })], 0)).toContain("approved 1/2");
+  });
+});
+
+describe("batch progress: a PR merged where nothing deploys is done", () => {
+  test("counted with the deployed ones", () => {
+    const noDeploy = aFacts({ state: "MERGED", mergedAt: NOW - 60_000, deploy: "NO_RUNS", deployPossible: false });
+    const deployed = aFacts({ state: "MERGED", mergedAt: NOW - 60_000, deploy: "SUCCEEDED" });
+    expect(batchProgress("2 PRs", [noDeploy, deployed, aFacts({ review: "REVIEW_REQUIRED" })], NOW)).toContain("done 2/3");
   });
 });
