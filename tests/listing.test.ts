@@ -104,3 +104,14 @@ describe("formatWatch", () => {
     expect(formatWatch(watch, undefined, checked + 11 * 60_000)).toContain("STALE: last checked 11 min ago");
   });
 });
+
+describe("the listing shows the track, like the pill", () => {
+  test("after the timestamps, from the last facts", () => {
+    const text = formatWatch(aWatch({ lastSnapshot: "PR: x\nsummary: y", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }), undefined, Date.parse("2026-11-18T12:00:00Z"));
+    expect(text.split("\n")[2]).toBe("track: Checks ✓ · Review ⏸ waiting for code review · Merge · Deploy");
+  });
+
+  test("none before the first check", () => {
+    expect(formatWatch(aWatch({ lastFacts: undefined }))).not.toContain("track:");
+  });
+});

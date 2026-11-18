@@ -1,3 +1,4 @@
+import { progressTrack, trackText } from "./progress";
 import { pollDelay } from "./policy";
 import type { Watch } from "./watcher";
 
@@ -27,6 +28,8 @@ export function formatWatch(watch: Watch, tail?: number, now?: number): string {
   return [
     `${watch.id} (session ${watch.sessionID}, provider ${watch.pinned.providerID})`,
     `last checked ${timestamp(watch.lastCheckedAt)}, last change ${timestamp(watch.lastSnapshot ? watch.lastChangeAt : undefined)}${staleness(watch, now)}`,
+    // The same track the pill shows, for agents and clients without the desktop app.
+    ...(watch.lastFacts ? [`track: ${trackText(progressTrack(watch.lastFacts, now ?? Date.now()))}`] : []),
     ...(watch.lastSnapshot ? snapshotLines(watch.lastSnapshot, tail) : ["(not checked yet)"]),
   ].join("\n");
 }
