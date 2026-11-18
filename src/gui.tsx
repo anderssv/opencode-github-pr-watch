@@ -10,6 +10,7 @@ import { emptyStore, sessionRows, update, type Change, type Store } from "../cor
 import { lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
+import { HIDDEN_BUTTONS_KEY, ROW_BUTTONS, readHiddenButtons, toggleButton, type RowButton } from "../core/row-buttons";
 
 interface Row {
   readonly id: string;
@@ -45,6 +46,15 @@ const SELECT_STYLE = { flex: "1 1 150px", "min-width": "150px", "box-sizing": "b
 
 export default Plugin.define({
   setup(ctx) {
+    // Shared by the pill and the PRs tab, so hiding a button applies to every line.
+    const [hiddenButtons, setHiddenButtons] = createSignal<readonly RowButton[]>(readHiddenButtons(localStorage.getItem(HIDDEN_BUTTONS_KEY)));
+    const shown = (button: RowButton) => !hiddenButtons().includes(button);
+    const setButtonShown = (button: RowButton, show: boolean) => {
+      const next = toggleButton(hiddenButtons(), button, show);
+      localStorage.setItem(HIDDEN_BUTTONS_KEY, next.join(","));
+      setHiddenButtons(next);
+    };
+
     const demo = localStorage.getItem(DEMO_KEY) === "true";
     // The one store the pill and the PRs tab read. It changes only through update(): full refreshes replace its rows
     // or PR lists, and each watch's change event patches just that watch's row.
@@ -143,10 +153,10 @@ export default Plugin.define({
             <div style={{ "overflow-wrap": "anywhere" }}>{line.text}</div>
             <div style={{ opacity: "0.6", "font-size": "12px" }}>{line.detail}</div>
           </div>
-          <Show when={line.onOpenSession}>
+          <Show when={shown("session") && line.onOpenSession}>
             {(open) => <TipButton icon="speech-bubble" label={`Open the watching session: ${line.row?.sessionTitle ?? ""}`} size="small" onClick={() => open()()} />}
           </Show>
-          <Show when={line.row}>
+          <Show when={shown("bell") && line.row}>
             {(row) => {
               const all = () => row().notify === "all";
               return (
@@ -162,7 +172,7 @@ export default Plugin.define({
               );
             }}
           </Show>
-          <For each={runLinks()}>
+          <For each={shown("run") ? runLinks() : []}>
             {(link) => (
               // A gear for the build or deploy run; it turns while the run is still going.
               <span class={line.row?.tone === "pending" && !line.row.runLinks ? "pr-watch-spinning" : undefined} style={{ display: "inline-flex" }}>
@@ -170,12 +180,14 @@ export default Plugin.define({
               </span>
             )}
           </For>
-          <Show when={line.onStop}>{(stop) => <TipButton icon="outline-eye-slash" label="Stop watching" size="small" onClick={() => stop()()} />}</Show>
-          <Show when={!line.onStop && line.onWatch}>{(watch) => <TipButton icon="eye" label="Watch in this session" size="small" onClick={() => watch()()} />}</Show>
-          <Show when={line.onNewSession}>
+          <Show when={shown("watch") && line.onStop}>{(stop) => <TipButton icon="outline-eye-slash" label="Stop watching" size="small" onClick={() => stop()()} />}</Show>
+          <Show when={shown("watch") && !line.onStop && line.onWatch}>{(watch) => <TipButton icon="eye" label="Watch in this session" size="small" onClick={() => watch()()} />}</Show>
+          <Show when={shown("new-session") && line.onNewSession}>
             {(start) => <TipButton icon="new-session" label="New session about this PR" size="small" onClick={() => start()()} />}
           </Show>
-          <TipButton icon="github" label="Open the PR" size="small" onClick={() => ctx.system.openExternal(line.url)} />
+          <Show when={shown("github")}>
+            <TipButton icon="github" label="Open the PR" size="small" onClick={() => ctx.system.openExternal(line.url)} />
+          </Show>
         </div>
       );
     };
@@ -251,16 +263,17 @@ export default Plugin.define({
       const view = () => prsView(store(), choices(), props.session.id, topics());
       const openSession = (row: Row) => () => port.openSession(props.session.server.id, row.sessionID!);
       let statusMenu: HTMLDetailsElement | undefined;
+      let buttonsMenu: HTMLDetailsElement | undefined;
       onMount(() => {
         load();
         // Watches update the store as they change; the PR search is refreshed on a timer and on reload.
         const timer = setInterval(load, 3 * 60_000);
         // The status dropdown is a <details>, which only closes on its own button: a click outside or Escape closes it too.
         const closeOutside = (event: PointerEvent) => {
-          if (statusMenu?.open && !statusMenu.contains(event.target as Node)) statusMenu.open = false;
+          for (const menu of [statusMenu, buttonsMenu]) if (menu?.open && !menu.contains(event.target as Node)) menu.open = false;
         };
         const closeOnEscape = (event: KeyboardEvent) => {
-          if (event.key === "Escape" && statusMenu?.open) statusMenu.open = false;
+          if (event.key === "Escape") for (const menu of [statusMenu, buttonsMenu]) if (menu?.open) menu.open = false;
         };
         document.addEventListener("pointerdown", closeOutside);
         document.addEventListener("keydown", closeOnEscape);
@@ -405,6 +418,29 @@ export default Plugin.define({
                         onChange={(event) => choose("statuses", toggleStatus(choices().statuses, status, event.currentTarget.checked))}
                       />
                       {STATUS_LABELS[status]}
+                    </label>
+                  )}
+                </For>
+              </div>
+            </details>
+            <details ref={buttonsMenu} style={{ position: "relative" }}>
+              {/* The host's IconButton is a <button>, which a <summary> can't hold, so the gear is drawn as the summary. */}
+              <summary aria-label="Choose the buttons on each PR line" title="Buttons on each PR line" style={{ cursor: "pointer", "list-style": "none", display: "inline-flex", "align-items": "center", padding: "4px" }}>
+                <ctx.ui.Icon name="settings-gear" size="small" />
+              </summary>
+              <div
+                style={{
+                  position: "absolute", "z-index": "10", top: "calc(100% + 4px)", right: "0", "box-sizing": "border-box",
+                  display: "flex", "flex-direction": "column", gap: "6px", padding: "8px", "border-radius": "6px",
+                  background: "var(--background-base, #1e1e1e)", border: "1px solid rgba(127,127,127,0.4)", "box-shadow": "0 4px 12px rgba(0,0,0,0.3)",
+                }}
+              >
+                <div style={{ "font-weight": "600", "white-space": "nowrap", "padding-bottom": "6px", "border-bottom": "1px solid rgba(127,127,127,0.25)" }}>Buttons on each PR line</div>
+                <For each={ROW_BUTTONS}>
+                  {(button) => (
+                    <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer", "white-space": "nowrap" }}>
+                      <input type="checkbox" checked={shown(button.id)} onChange={(event) => setButtonShown(button.id, event.currentTarget.checked)} />
+                      {button.label}
                     </label>
                   )}
                 </For>
