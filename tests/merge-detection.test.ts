@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { alreadyUpToDate, commandDirectory, findBotRefreshes, findBranchUpdates, findPrMerges, findRunReruns } from "../core/merge-detection";
+import { alreadyUpToDate, commandDirectory, findGitPushes, findPrCreates, prUrlsIn, findBotRefreshes, findBranchUpdates, findPrMerges, findRunReruns } from "../core/merge-detection";
 
 describe("findPrMerges", () => {
   test("finds a merge with a PR number and --repo", () => {
@@ -177,5 +177,33 @@ describe("commandDirectory: the folder a command ran in, for its gh calls withou
   test("no cd first: where the shell started", () => {
     expect(commandDirectory("gh pr merge 1", "/base", "/home/me")).toBe("/base");
     expect(commandDirectory("echo cd /x; gh pr merge 1", "/base", "/home/me")).toBe("/base");
+  });
+});
+
+describe("findPrCreates: gh pr create, for a watch of the new PR", () => {
+  test("found, with --repo when given; not in other gh pr commands", () => {
+    expect(findPrCreates('gh pr create --title "Fix x" --body "y"')).toEqual([{}]);
+    expect(findPrCreates("cd app && gh pr create -R o/r --fill")).toEqual([{ repo: "o/r" }]);
+    expect(findPrCreates("gh pr view 1")).toEqual([]);
+    expect(findPrCreates('echo "gh pr create"')).toEqual([]);
+  });
+});
+
+describe("findGitPushes: git push of commits, for the branch's PR", () => {
+  test("pushes of commits, not of tags or deletions", () => {
+    expect(findGitPushes("git push")).toBe(true);
+    expect(findGitPushes("git add -A && git commit -m x && git push -u origin fix")).toBe(true);
+    expect(findGitPushes("git push --force-with-lease origin fix")).toBe(true);
+    expect(findGitPushes("git push --tags")).toBe(false);
+    expect(findGitPushes("git push origin --delete fix")).toBe(false);
+    expect(findGitPushes("git pull")).toBe(false);
+    expect(findGitPushes('echo "git push"')).toBe(false);
+  });
+});
+
+describe("prUrlsIn: the PRs a command's output names", () => {
+  test("each once", () => {
+    expect(prUrlsIn("https://github.com/o/r/pull/12\\nCreated https://github.com/o/r/pull/12")).toEqual(["https://github.com/o/r/pull/12"]);
+    expect(prUrlsIn("nothing")).toEqual([]);
   });
 });

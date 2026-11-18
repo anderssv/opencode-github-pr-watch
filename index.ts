@@ -18,7 +18,7 @@ import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPromp
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
 import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
 import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh } from "./core/github";
-import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory } from "./core/merge-detection";
+import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory, findGitPushes, findPrCreates, prUrlsIn } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
 import { execFile } from "node:child_process";
@@ -904,7 +904,9 @@ export default Plugin.define({
         ...findBotRefreshes(input.command ?? "").map((update) => ({ ...update, by: "gh pr comment to the bot" })),
       ];
       const dispatches = findWorkflowDispatches(input.command ?? "");
-      if (merges.length === 0 && reruns.length === 0 && updates.length === 0 && dispatches.length === 0) return;
+      const creates = findPrCreates(input.command ?? "");
+      const pushed = findGitPushes(input.command ?? "");
+      if (merges.length === 0 && reruns.length === 0 && updates.length === 0 && dispatches.length === 0 && creates.length === 0 && !pushed) return;
       debug("command", {
         sessionID: event.sessionID, command: (input.command ?? "").slice(0, 500), merges, reruns, updates, dispatches,
         ...(startedAt === undefined ? {} : { durationMs: Date.now() - startedAt }),
@@ -917,6 +919,30 @@ export default Plugin.define({
 
       // A `cd` the command opens with moves where its gh calls ran, which decides the repository without --repo.
       const cwd = commandDirectory(input.command ?? "", input.workdir ?? (await sessionView(event.sessionID)).directory, homedir());
+      // A new PR, or new commits on a branch with one: watch it, like after a merge. A push to a branch without a PR
+      // (main, a branch not yet opened) is nothing to watch, so it says nothing.
+      if (creates.length > 0) {
+        for (const url of prUrlsIn(JSON.stringify(event.result ?? ""))) {
+          try {
+            const note = await startWatch(event.sessionID, url, cwd, undefined, undefined, "gh pr create");
+            if (note) await inform(event.sessionID, note);
+          } catch (err) {
+            debug("no-watch", { sessionID: event.sessionID, after: "create", error: err instanceof Error ? err.message : String(err) });
+            await informOnce(event.sessionID, noWatchMessage("creation", url, err instanceof Error ? err.message : String(err)));
+          }
+        }
+      }
+      if (pushed) {
+        const url = await tolerate(debug, "the pushed branch's PR", currentBranchPrUrl(runGh, cwd), undefined, { cwd });
+        if (url) {
+          try {
+            const note = await startWatch(event.sessionID, url, cwd, undefined, undefined, "git push");
+            if (note) await inform(event.sessionID, note);
+          } catch (err) {
+            debug("no-watch", { sessionID: event.sessionID, after: "push", error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+      }
       for (const merge of merges) {
         try {
           const reference = merge.pr
@@ -986,7 +1012,7 @@ export default Plugin.define({
           "Every change of where the PR is gets a message, including checks finishing (passed or failed), so no message means nothing changed; " +
           "Progress within a step is sent as the PR's track (PR, checks, review, merge, deploy), at most once a minute, without waking the agent. " +
           "Also watches a single workflow run without a PR (a manual dispatch), given its run link, until it succeeds, fails or waits for approval. " +
-          "Starts automatically after gh pr merge, gh pr update-branch, gh run rerun and gh workflow run. Use this instead of polling with sleep. " +
+          "Starts automatically after gh pr create, git push to a branch with a PR, gh pr merge, gh pr update-branch, gh run rerun and gh workflow run. Use this instead of polling with sleep. " +
           "Answers at once; the first status (or why it isn't watched) follows as a message within about 15 seconds, so don't wait or poll for it.",
         input: {
           type: "object",

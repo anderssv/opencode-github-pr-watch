@@ -100,3 +100,26 @@ export function commandDirectory(command: string, start: string, home: string): 
     rest = rest.slice(match[0].length);
   }
 }
+
+const CREATE_VALUE_FLAGS = new Set([
+  "--title", "-t", "--body", "-b", "--body-file", "-F", "--base", "-B", "--head", "-H", "--assignee", "-a",
+  "--label", "-l", "--milestone", "-m", "--project", "-p", "--reviewer", "-r", "--template", "-T", "--recover",
+]);
+
+/** `gh pr create`: the new PR's link comes from the command's output. */
+export function findPrCreates(command: string): { repo?: string }[] {
+  return invocations(command, "pr create", CREATE_VALUE_FLAGS)
+    .filter((inv) => !usesVariable(inv))
+    .map(({ repo }) => (repo ? { repo } : {}));
+}
+
+/** `git push` of commits (not only tags, not a deletion), for the PR of the branch it pushed. */
+export function findGitPushes(command: string): boolean {
+  const pushes = [...command.matchAll(/(?:^|[;&|(\n]|\bdo\b|\bthen\b)\s*git\s+push\b([^;&|\n)]*)/g)];
+  return pushes.some((m) => !/(^|\s)(--tags|--delete|-d)(\s|$)/.test(m[1] ?? ""));
+}
+
+/** The PR links in a command's output, each once. */
+export function prUrlsIn(text: string): string[] {
+  return [...new Set([...text.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g)].map((m) => m[0]))];
+}

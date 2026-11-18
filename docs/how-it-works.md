@@ -63,7 +63,10 @@ Each check reads the PR and the workflow runs on its merge commit and turns them
 - **No duplicates:** OpenCode can load the plugin more than once, and each instance may run the same watch. An identical message to the same session within 30 minutes is sent only once (tracked in plugin storage, which all instances share).
 - **Batches and digests:** messages for one session arriving within 20 seconds are sent as one digest. For each batch involved, the digest adds progress like `approved 3/6 · merged 1/6 · done 0/6` (done: deployed, or merged where nothing deploys). Any watch on a batch PR, including a separate deploy watch after a merge, keeps the batch's numbers current. The batch ends when its last watch stops; a later merge starts its own, separate watch.
 
-## Automatic start on merge
+## Automatic starts
+
+- **`gh pr create`:** the new PR (its link in the command's output) is watched.
+- **`git push`** of commits (not only tags, not a deletion): the PR of the current branch is watched, if it has one; a push to a branch without a PR says nothing. A PR already watched keeps its watch, and one stopped in this session isn't started again.
 
 When a `shell` (or legacy `bash`) tool call that runs `gh pr merge` (including `--auto`), `gh pr update-branch` (or its REST form `gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch`) or `gh run rerun <id>` completes, a watch starts for that PR (never on PR creation). The REST form the agent sometimes uses (`gh api -X PUT repos/<owner>/<repo>/pulls/<n>/update-branch` or `…/merge`, also via `$GH`) counts too. A command without a PR number, run outside a git repo, is skipped silently. The watch starts through the same provider guard as `watch_pr`. A short note is posted to the session without waking the agent.
 
