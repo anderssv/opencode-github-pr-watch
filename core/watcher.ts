@@ -11,7 +11,6 @@ import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
 const JUDGE_FAILURE_REPORT_MS = 30 * 60_000;
 
-const READY_CONFIRM_MS = 30_000;
 
 export interface Watch {
   /** The learned time limit for the current build or deploy phase. */
@@ -257,13 +256,8 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
       ? { pipelineLimitMs: next.phaseLimit.limitMs }
       : settings.pipelineLimitMs !== undefined ? { pipelineLimitMs: settings.pipelineLimitMs } : {}),
   });
-  // Right after a merge, GitHub can still report the PR as open and ready for a few seconds; a second read 30 s later
-  // catches that, so "ready for merge" is never said about a PR that has just merged.
-  const ready = end !== undefined && nextStep(facts, now) === "READY";
-  // The state is kept as it was, so the confirming check reports the same events (approved, checks passed).
-  if (end) ports.debug?.("end", { id: watch.id, end, confirmingReady: ready && watch.readySince === undefined });
-  if (ready && watch.readySince === undefined) return { watch: { ...watch, readySince: now, lastCheckedAt: now }, stop: false, delayMs: READY_CONFIRM_MS };
-  if (!ready && next.readySince !== undefined) {
+  if (end) ports.debug?.("end", { id: watch.id, end });
+  if (next.readySince !== undefined) {
     const { readySince: _gone, ...rest } = next;
     next = rest;
   }
@@ -305,6 +299,9 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     if (nextStep(watch.lastFacts, now) !== nextStep(facts, now)) found.push(stepChangeText(watch.lastFacts, facts, now));
     else if (watch.notify === "all" && stepDetail(watch.lastFacts, now) !== stepDetail(facts, now)) found.push(stepDetail(facts, now));
   }
+  // Becoming ready for merge is where a person has to act, so it's named even when other events already explain why.
+  const nowReady = phase === "ready" && watch.lastFacts !== undefined && nextStep(watch.lastFacts, now) !== "READY";
+  if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
   if (found.length > 0) await say(`${found.join("; ")}. ${summary}`);
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
     const hours = Math.round((now - phaseSince) / 3_600_000);

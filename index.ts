@@ -953,7 +953,8 @@ export default Plugin.define({
         description:
           "Watch GitHub pull requests in the background until a person has to act or they are in production: " +
           "waiting for review or an environment approval (no time limit, daily reminder on working days), a branch build, auto-merge, and the deploy after merge. " +
-          "Ends with what happened or what to do next (ready for merge, changes requested, checks failed, deployed, deploy failed). " +
+          "A PR ready for merge stays watched until it is merged, then its deploy is followed. " +
+          "Ends with what happened or what to do next (changes requested, checks failed, deployed, deploy failed). " +
           "Every change of where the PR is gets a message, including checks finishing (passed or failed), so no message means nothing changed; " +
           'notify "all" also reports progress within a step (each check or job). ' +
           "Also watches a single workflow run without a PR (a manual dispatch), given its run link, until it succeeds, fails or waits for approval. " +

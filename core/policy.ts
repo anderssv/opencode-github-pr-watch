@@ -99,14 +99,14 @@ export function approvalWait(facts: PrFacts): ApprovalWait | undefined {
 // A person approving a run into an environment, which is not the same as reviewing the code.
 export const approvalText = (wait: ApprovalWait): string => `run approval needed (${wait.kind}): ${wait.names.join(", ")}`;
 
-export type Phase = "review" | "approval" | "checks" | "required-checks" | "base-deploy" | "auto-merge" | "auto-update" | "deploy";
+export type Phase = "review" | "approval" | "ready" | "checks" | "required-checks" | "base-deploy" | "auto-merge" | "auto-update" | "deploy";
 
 const HOUR = 60 * MINUTE;
 const REMINDER_EVERY_MS = 24 * HOUR;
 export const DEFAULT_PIPELINE_LIMIT_MS = 30 * MINUTE;
 const AUTO_MERGE_READY_LIMIT_MS = 10 * MINUTE;
 
-const TIMEOUTS: Record<Exclude<Phase, "review" | "approval">, (limit: string, facts: PrFacts) => string> = {
+const TIMEOUTS: Record<Exclude<Phase, "review" | "approval" | "ready">, (limit: string, facts: PrFacts) => string> = {
   checks: (limit) => `checks still running after ${limit}`,
   // A required check whose workflow never triggers (for example a path filter that skips it) blocks the merge
   // forever; GitHub only shows it as BLOCKED.
@@ -129,7 +129,8 @@ export function phaseOf(facts: PrFacts, now: number): { phase: Phase } | { end: 
     case "WAIT_CHECKS": return { phase: facts.checks === "MISSING" ? "required-checks" : "checks" };
 
     case "WAIT_DEPLOY": return { phase: facts.autoMerge ? "auto-merge" : "base-deploy" };
-    case "READY": return facts.autoMerge ? { phase: "auto-merge" } : { end: "approved and checks pass, ready for merge" };
+    // Ready without auto-merge waits for someone to merge it, so the merge leads straight into following the deploy.
+    case "READY": return { phase: facts.autoMerge ? "auto-merge" : "ready" };
     case "UPDATE_BRANCH":
       return facts.autoMerge ? { phase: "auto-update" } : { end: `behind ${base}` };
     case "WAIT_DEPLOY_START": case "DEPLOYING": return { phase: "deploy" };
@@ -178,8 +179,8 @@ export function endReason(facts: PrFacts, input: EndInput): string | undefined {
     if (now - input.phaseSince < AUTO_MERGE_READY_LIMIT_MS) return undefined;
     return `approved and checks pass, but auto-merge hasn't merged after ${AUTO_MERGE_READY_LIMIT_MS / MINUTE} minutes`;
   }
-  // Waiting on people (a review, an environment approval) has no limit: the watch keeps going, with daily reminders.
-  if (current.phase === "review" || current.phase === "approval") return undefined;
+  // Waiting on people (a review, an environment approval, the merge) has no limit: the watch keeps going.
+  if (current.phase === "review" || current.phase === "approval" || current.phase === "ready") return undefined;
   const limitMs = input.pipelineLimitMs ?? DEFAULT_PIPELINE_LIMIT_MS;
   if (now - input.phaseSince < limitMs) return undefined;
   return `${TIMEOUTS[current.phase](`${Math.round(limitMs / MINUTE)} minutes`, facts)}; call watch_pr again to keep watching`;

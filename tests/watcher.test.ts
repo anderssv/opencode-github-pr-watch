@@ -28,37 +28,26 @@ describe("tick: fixed events, no model", () => {
     expect(result.stop).toBe(false);
   });
 
-  test("ready for merge is confirmed on a second check before it is said (plan 26, platform#2466)", async () => {
+  test("ready for merge keeps watching: said once as a change of step, then it waits for the merge", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("approved", { review: "APPROVED" }), aSnapshot("approved", { review: "APPROVED" })] });
 
     const first = await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }), ports, settings());
     expect(first.stop).toBe(false);
-    expect(first.delayMs).toBe(30_000);
-    expect(ports.notifications).toEqual([]);
-
-    const second = await tick(first.watch, ports, settings());
-    expect(second.stop).toBe(true);
-    expect(ports.notifications[0]!.text).toContain("ready for merge");
-  });
-
-  test("a merge between the two checks keeps watching the deploy", async () => {
-    const ports = fakePorts({ snapshots: [aSnapshot("approved", { review: "APPROVED" }), aSnapshot("merged", { state: "MERGED", mergedAt: NOW, deploy: "NO_RUNS" })] });
-
-    const first = await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }), ports, settings());
-    const second = await tick(first.watch, ports, settings());
-    expect(second.stop).toBe(false);
-    expect(ports.notifications.map((n) => n.text).join()).not.toContain("ready for merge");
-  });
-
-  test("hands back when approved without auto-merge: ready for merge", async () => {
-    const ports = fakePorts({ snapshots: [aSnapshot("approved", { review: "APPROVED" })] });
-
-    const result = await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }), readySince: NOW - 30_000 }), ports, settings());
-
-    expect(result.stop).toBe(true);
+    expect(first.delayMs).toBe(5 * 60_000 - (NOW % (5 * 60_000)) || 5 * 60_000);
     expect(ports.notifications).toHaveLength(1);
     expect(ports.notifications[0]!.text).toContain("approved");
-    expect(ports.notifications[0]!.text).toContain("ready for merge");
+    expect(ports.notifications[0]!.text).toContain("ready to merge");
+
+    const second = await tick(first.watch, ports, settings());
+    expect(second.stop).toBe(false);
+    expect(ports.notifications).toHaveLength(1);
+  });
+
+  test("the merge after ready leads into the deploy", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("merged", { state: "MERGED", mergedAt: NOW, deploy: "RUNNING" })] });
+    const result = await tick(watchStarted({ lastSnapshot: "approved", lastFacts: aFacts() }), ports, settings());
+    expect(result.stop).toBe(false);
+    expect(ports.notifications.map((n) => n.text).join()).toContain("merged");
   });
 
   test("stops at an end state and says why", async () => {

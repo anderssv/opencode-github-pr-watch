@@ -106,12 +106,12 @@ describe("phaseOf: a watch follows the PR until a person has to act or it is in 
     [merged({ deploy: "NO_RUNS" }), "deploy"],
     [merged({ deploy: "RUNNING" }), "deploy"],
     [merged({ deploy: "WAITING" }), "approval"],
+    [aFacts(), "ready"],
   ])("%o is still moving: %s", (facts, phase) => {
     expect(phaseOf(facts, NOW)).toMatchObject({ phase });
   });
 
   test.each([
-    [aFacts(), "approved and checks pass, ready for merge"],
     [aFacts({ branch: "BEHIND" }), "behind main"],
     [aFacts({ review: "CHANGES_REQUESTED" }), "changes requested"],
     [aFacts({ checks: "FAIL", failingChecks: ["Trivy"] }), "checks failed: Trivy"],
@@ -140,7 +140,11 @@ describe("endReason", () => {
   });
 
   test("ends where phaseOf ends", () => {
-    expect(end(aFacts())).toContain("ready for merge");
+    expect(end(aFacts({ review: "CHANGES_REQUESTED" }))).toContain("changes requested");
+  });
+
+  test("ready for merge without auto-merge waits for the merge, without a time limit", () => {
+    expect(end(aFacts(), { phaseSince: NOW - 30 * 86_400_000 })).toBeUndefined();
   });
 
   test("auto-merge on a PR that is ready ends after 10 minutes, since GitHub merges within a minute or two (plan 10, platform#2328)", () => {
@@ -206,8 +210,12 @@ describe("startDecision", () => {
     expect(startDecision(aFacts({ review: "REVIEW_REQUIRED" }), NOW).start).toBe(true);
   });
 
+  test("a PR ready for merge is watched until it is merged", () => {
+    expect(startDecision(aFacts(), NOW)).toEqual({ start: true });
+  });
+
   test("does not start when a person has to act or it is done, and says why", () => {
-    expect(startDecision(aFacts(), NOW)).toEqual({ start: false, reason: expect.stringContaining("ready for merge") });
+    expect(startDecision(aFacts({ review: "CHANGES_REQUESTED" }), NOW)).toEqual({ start: false, reason: expect.stringContaining("changes requested") });
     expect(startDecision(merged({ deploy: "SUCCEEDED" }), NOW)).toEqual({ start: false, reason: expect.stringContaining("deployed") });
   });
 
