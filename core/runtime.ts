@@ -13,9 +13,11 @@ export interface ProcessState {
   lastCheckNowAt?: number;
   /** Orphaned watches and the directory whose loop took each over. */
   readonly orphans: Map<string, string>;
+  /** Watches being checked right now, by any instance in the process. */
+  readonly checking: Set<string>;
 }
 
-export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map() });
+export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map(), checking: new Set() });
 
 const KEY = Symbol.for("opencode-pr-watch/process");
 
@@ -26,6 +28,7 @@ export const processState = (): ProcessState => {
   // A state made by an older version of this module (kept across a hot reload) lacks the newer fields.
   (state as { checkers?: ProcessState["checkers"] }).checkers ??= new Map();
   (state as { orphans?: ProcessState["orphans"] }).orphans ??= new Map();
+  (state as { checking?: ProcessState["checking"] }).checking ??= new Set();
   return state;
 };
 
@@ -96,3 +99,15 @@ export function claimOrphan(state: ProcessState, id: string, directory: string):
   state.orphans.set(id, directory);
   return true;
 }
+
+/**
+ * A reload starts a new instance that checks every watch at once, while the old one may still be checking the same
+ * watch; both would read the same state and report the same change. Only one check of a watch runs at a time.
+ */
+export function beginCheck(state: ProcessState, id: string): boolean {
+  if (state.checking.has(id)) return false;
+  state.checking.add(id);
+  return true;
+}
+
+export const endCheck = (state: ProcessState, id: string) => void state.checking.delete(id);

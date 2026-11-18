@@ -20,7 +20,7 @@ import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePr
 import { configureGh, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh } from "./core/github";
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
-import { claimOrphan, claimPolling, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
+import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { notificationCommands } from "./core/desktop-notification";
@@ -69,6 +69,7 @@ const showDesktopNotification = (message: string) => {
 };
 
 const ERROR_RETRY_MS = 60_000;
+const BUSY_RETRY_MS = 15_000;
 
 const phaseFields = (facts: PrFacts, now: number) => {
   const current = phaseOf(facts, now);
@@ -598,7 +599,17 @@ export default Plugin.define({
       timers.set(id, setTimeout(() => void step(id), delayMs));
     };
 
+    // Another instance may be checking this watch (after a reload); then look again shortly instead of reporting twice.
     const step = async (id: string) => {
+      if (!beginCheck(shared, id)) return schedule(id, BUSY_RETRY_MS);
+      try {
+        await checkOnce(id);
+      } finally {
+        endCheck(shared, id);
+      }
+    };
+
+    const checkOnce = async (id: string) => {
       let delayMs = ERROR_RETRY_MS;
       try {
         const watch = (await ctx.storage.get(KEY_PREFIX + id)) as unknown as Watch | undefined;

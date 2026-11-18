@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { claimOrphan, claimPolling, dropMessagesFor, handToOwner, newProcessState, onCheckNow, ownsPolling, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "../core/runtime";
+import { beginCheck, claimOrphan, endCheck, claimPolling, dropMessagesFor, handToOwner, newProcessState, onCheckNow, ownsPolling, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "../core/runtime";
 
 describe("resume announcements", () => {
   test("only the first setup for a directory in a process announces resumed watches", () => {
@@ -122,5 +122,16 @@ describe("orphaned watches: one instance takes each over, not every one that sta
     expect(claimOrphan(state, "o/r#1", "/b")).toBe(false);
     expect(claimOrphan(state, "o/r#1", "/a")).toBe(true);
     expect(claimOrphan(state, "o/r#2", "/b")).toBe(true);
+  });
+});
+
+describe("one check of a watch at a time, across instances in the process", () => {
+  test("a second start while one runs is refused; after it ends, the next can start", () => {
+    const state = newProcessState();
+    expect(beginCheck(state, "o/r#1")).toBe(true);
+    expect(beginCheck(state, "o/r#1")).toBe(false);
+    expect(beginCheck(state, "o/r#2")).toBe(true);
+    endCheck(state, "o/r#1");
+    expect(beginCheck(state, "o/r#1")).toBe(true);
   });
 });
