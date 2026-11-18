@@ -10,7 +10,7 @@ import type { WatchRowLike } from "./prs-view";
 export interface PanelPort {
   myPrs(merged: boolean): Promise<LoadedPrs>;
   /** Every session's watches, and the gh user. */
-  watches(): Promise<{ readonly rows: readonly WatchRowLike[]; readonly me?: string }>;
+  watches(): Promise<{ readonly rows: readonly WatchRowLike[]; readonly me?: string; readonly paused?: string }>;
   myPrTopics(sessionID: string, merged: boolean): Promise<readonly Topic[]>;
   watch(sessionID: string, pr: string): Promise<string>;
   unwatch(id: string): Promise<void>;
@@ -73,9 +73,10 @@ export function panelOperations(port: PanelPort, apply: (change: Change) => void
   return {
     /** Full refreshes put what they read into the store; they throw, so the tab can show the error. */
     refreshWatches: async () => {
-      const { rows, me } = await port.watches();
+      const { rows, me, paused } = await port.watches();
       apply({ kind: "rows", rows });
       if (me) apply({ kind: "me", me });
+      apply({ kind: "paused", ...(paused ? { text: paused } : {}) });
     },
     refreshPrs: async (merged: boolean) => {
       const loaded = await track("Loading your PRs…", port.myPrs(merged));

@@ -82,7 +82,7 @@ export default Plugin.define({
 
     const appPort: PanelPort = {
       myPrs: async (merged) => (await ctx.client.rpc(PrWatch).myPrs({ merged })) as LoadedPrs,
-      watches: async () => (await ctx.client.rpc(PrWatch).watches({})) as { rows: Row[]; me?: string },
+      watches: async () => (await ctx.client.rpc(PrWatch).watches({})) as { rows: Row[]; me?: string; paused?: string },
       myPrTopics: async (sessionID, merged) => ((await ctx.client.rpc(PrWatch).myPrTopics({ sessionID, merged })) as { topics: Topic[] }).topics,
       watch: async (sessionID, pr) => ((await ctx.client.rpc(PrWatch).watch({ sessionID, pr })) as { message: string }).message,
       unwatch: async (id) => void (await ctx.client.rpc(PrWatch).unwatch({ id })),
@@ -523,7 +523,10 @@ export default Plugin.define({
               Current session only
             </label>
           </div>
-          <Show when={error()}>{(text) => <div style={{ color: "var(--text-danger, #c33)" }}>Could not load your PRs: {text()}</div>}</Show>
+          {/* GitHub rate limiting or out of reach pauses every watch; that says more than a load error. */}
+          <Show when={store().paused} fallback={<Show when={error()}>{(text) => <div style={{ color: "var(--text-danger, #c33)" }}>Could not load your PRs: {text()}</div>}</Show>}>
+            {(text) => <div style={{ color: "var(--text-warning, #d29922)" }}>{text()}</div>}
+          </Show>
           <Show when={choices().grouping === "topic" && topicsError()}>
             {(text) => <div style={{ opacity: "0.8", "font-size": "12px" }}>Grouped by repo: {text()}</div>}
           </Show>

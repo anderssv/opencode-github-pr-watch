@@ -46,3 +46,11 @@ describe("the pill: everything this session watches", () => {
     expect(sessionRows(rows, "s1").map((r) => r.id)).toEqual(["a", "c"]);
   });
 });
+
+describe("the store knows when GitHub calls are paused", () => {
+  test("set, and cleared when they aren't any more", () => {
+    const paused = update(empty(), { kind: "paused", text: "GitHub is rate limiting; checking again at 12:05" });
+    expect(paused.paused).toBe("GitHub is rate limiting; checking again at 12:05");
+    expect(update(paused, { kind: "paused" }).paused).toBeUndefined();
+  });
+});

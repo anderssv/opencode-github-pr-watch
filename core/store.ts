@@ -16,6 +16,8 @@ export interface Store<R extends WatchRowLike = WatchRowLike> {
   readonly merged?: readonly MyPr[];
   /** The gh user, to tell their PRs from others' among the watched ones. */
   readonly me?: string;
+  /** Why every GitHub call is paused (a rate limit, the network), and until when. */
+  readonly paused?: string;
 }
 
 export type Change<R extends WatchRowLike = WatchRowLike> =
@@ -23,7 +25,8 @@ export type Change<R extends WatchRowLike = WatchRowLike> =
   /** One watch checked (its new row), or stopped (no row). */
   | { readonly kind: "row"; readonly id: string; readonly row?: R }
   | { readonly kind: "prs"; readonly open: readonly MyPr[]; readonly merged?: readonly MyPr[] }
-  | { readonly kind: "me"; readonly me: string };
+  | { readonly kind: "me"; readonly me: string }
+  | { readonly kind: "paused"; readonly text?: string };
 
 export const emptyStore = <R extends WatchRowLike>(): Store<R> => ({ rows: [], rowsLoaded: false });
 
@@ -41,6 +44,10 @@ export function update<R extends WatchRowLike>(store: Store<R>, change: Change<R
       return { ...store, open: change.open, ...(change.merged ? { merged: change.merged } : {}) };
     case "me":
       return { ...store, me: change.me };
+    case "paused": {
+      const { paused: _gone, ...rest } = store;
+      return change.text ? { ...rest, paused: change.text } : rest;
+    }
   }
 }
 

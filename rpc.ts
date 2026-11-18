@@ -127,7 +127,7 @@ export const PrWatch = Rpc.define({
       input: { type: "object", additionalProperties: false },
       output: {
         type: "object",
-        properties: { rows: { type: "array", items: row }, me: { type: "string" } },
+        properties: { rows: { type: "array", items: row }, me: { type: "string" }, paused: { type: "string" } },
         required: ["rows"],
         additionalProperties: false,
       },

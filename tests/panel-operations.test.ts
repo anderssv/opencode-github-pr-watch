@@ -107,8 +107,8 @@ describe("panel operations", () => {
     const { log, ops, changes } = setup();
     await ops.refreshWatches();
     await ops.refreshPrs(true);
-    expect(changes.map((c) => c.kind)).toEqual(["rows", "me", "prs"]);
-    expect(changes[2]).toMatchObject({ kind: "prs", merged: [{ number: 2 }] });
+    expect(changes.map((c) => c.kind)).toEqual(["rows", "me", "paused", "prs"]);
+    expect(changes[3]).toMatchObject({ kind: "prs", merged: [{ number: 2 }] });
     expect(log).toEqual(["… Loading your PRs…"]);
   });
 

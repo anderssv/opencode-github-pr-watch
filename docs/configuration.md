@@ -32,6 +32,7 @@ Every decision is written as one JSON line to `~/.local/state/opencode-github-pr
 - `check`: each poll's step, phase, events and summary; `end` with the reason; `result` with stop and the next delay.
 - `judge`, `diagnosis`, `bot-advice`, `stall`: each model call's answer or error.
 - `model-answer-invalid`: a model answer the code couldn't fully use: which call and model, what was wrong (no JSON, a value outside the choices, a missing field), and the start of the raw answer. A wrong value in a decision field falls back (for example "notify" when judging, "real" for a failure's cause) and the model's own text is still used; useful when trying a different model.
+- `github-paused`, `github-back`: every GitHub call paused for a rate limit or the network, and resumed.
 - `notify`, `delivered`, `deliver-dropped`, `dropped`: messages sent, delivered, or dropped (unwatched, superseded, stale).
 - `read-failed`: GitHub couldn't be read, so the check decided nothing. `tolerated-error`: something optional failed and was left out. `check-failed`: a check threw and will be retried.
 

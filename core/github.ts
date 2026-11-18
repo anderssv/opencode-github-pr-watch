@@ -6,6 +6,8 @@ import type { WorkflowRole, WorkflowSummary } from "./workflow-role";
 import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironments } from "./merge-triggers";
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
+import { classifyGhError, healthAfter, pausedText } from "./github-health";
+import { processState } from "./runtime";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
 import { runFacts } from "./run-facts";
 import { planSummary, type TerraformPlan } from "./terraform";
@@ -44,13 +46,38 @@ export async function configureGh(configured?: string): Promise<string | undefin
   return ghBinary;
 }
 
-export const runGh: Gh = (args, cwd) =>
+const execGh: Gh = (args, cwd) =>
   new Promise((resolve, reject) => {
     execFile(ghBinary ?? "gh", args, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 60_000, ...(ghEnv ? { env: ghEnv } : {}) }, (err, stdout, stderr) => {
       if (err) reject(new Error(ghFailure(err, args, stderr)));
       else resolve(stdout);
     });
   });
+
+// While GitHub is rate limiting or can't be reached, every call is refused at once until the shared pause is over.
+export const runGh: Gh = async (args, cwd) => {
+  const state = processState();
+  const paused = pausedText(state.github, Date.now());
+  if (paused) throw new Error(paused);
+  try {
+    const out = await execGh(args, cwd);
+    if (state.github) {
+      debug("github-back", { after: state.github.kind, failures: state.github.failures });
+      state.github = undefined;
+    }
+    return out;
+  } catch (err) {
+    const kind = classifyGhError(err instanceof Error ? err.message : String(err));
+    if (kind) {
+      state.github = healthAfter(state.github, kind, Date.now());
+      debug("github-paused", { kind, until: new Date(state.github!.until).toISOString(), failures: state.github!.failures });
+    }
+    throw err;
+  }
+};
+
+/** Why every GitHub call is paused right now, for the panel; undefined when they aren't. */
+export const githubPaused = () => pausedText(processState().github, Date.now());
 
 const PR_FIELDS = "headRefOid,author,state,isDraft,baseRefName,title,url,reviewDecision,mergeStateStatus,autoMergeRequest,mergedAt,mergeCommit,statusCheckRollup";
 
