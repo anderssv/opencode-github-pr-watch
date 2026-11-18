@@ -36,6 +36,16 @@ const LOOK: Record<Row["tone"], { icon: IconName; tone?: ComposerPillTone }> = {
 
 type PrGroupView = { readonly name: string; readonly kind: "repo" | "topic" | "all"; readonly prs: readonly MyPr[] };
 
+// The icon each button shows on a PR line, for the menu that hides them.
+const BUTTON_ICONS: Record<RowButton, IconName> = {
+  session: "speech-bubble",
+  bell: "notifications",
+  run: "settings-gear",
+  watch: "eye",
+  "new-session": "new-session",
+  github: "github",
+};
+
 const TITLE = "Watched pull requests";
 const SORTS: readonly { value: MyPrSort; label: string }[] = [
   { value: "name", label: "Sort by: Name" },
@@ -441,6 +451,7 @@ export default Plugin.define({
                   {(button) => (
                     <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer", "white-space": "nowrap" }}>
                       <input type="checkbox" checked={shown(button.id)} onChange={(event) => setButtonShown(button.id, event.currentTarget.checked)} />
+                      <ctx.ui.Icon name={BUTTON_ICONS[button.id]} size="small" />
                       {button.label}
                     </label>
                   )}
