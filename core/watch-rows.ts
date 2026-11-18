@@ -107,6 +107,9 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
       const blocked = stepName === "CHECKS_BLOCKED" ? (watch.lastFacts?.blockedChecks ?? []) : [];
       const step = stepName ? ((watch.lastFacts?.standaloneRun && RUN_STEPS[stepName]) || STEPS[stepName]) : undefined;
       const base = step && watch.lastFacts ? step.detail(watch.lastFacts) : "not checked yet";
+      const unresolved = watch.lastFacts?.state === "OPEN" ? (watch.lastFacts.unresolvedThreads ?? 0) : 0;
+      const comments = unresolved > 0 ? ` · ${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}` : "";
+      const tone: WatchTone = approving ? "waiting" : going && step?.tone !== "failed" ? "pending" : (step?.tone ?? "pending");
       return {
         id: watch.id,
         ...(watch.lastFacts?.author ? { author: watch.lastFacts.author } : {}),
@@ -115,11 +118,12 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
         ...(watch.lastFacts ? { track: progressTrack(watch.lastFacts, now) } : {}),
         label: title ? `${watch.id} ${title}` : watch.id,
         url: watch.run ? `https://github.com/${watch.repo}/actions/runs/${watch.run}` : `https://github.com/${watch.repo}/pull/${watch.pr}`,
-        detail: approving
+        detail: (approving
           ? `run approval needed: ${approving.workflow} (${(approving.waitingJobs ?? []).join(", ")}) · ${base}`
-          : base + (going ? ` · ${runText(going)}` : ""),
+          : base + (going ? ` · ${runText(going)}` : "")) + comments,
         // A run waiting for approval needs a person; one that is going makes the row pending, unless the PR has failed.
-        tone: approving ? "waiting" : going && step?.tone !== "failed" ? "pending" : (step?.tone ?? "pending"),
+        // Unresolved review comments need an answer, so they turn a line that is otherwise fine yellow.
+        tone: unresolved > 0 && (tone === "pending" || tone === "done") ? "waiting" : tone,
         ...(approving || ["CHECKS_WAITING", "CHECKS_BLOCKED", "DEPLOY_WAITING"].includes(stepName ?? "")
           ? { waitingFor: "run-approval" as const }
           : stepName === "NEEDS_REVIEW" ? { waitingFor: "code-review" as const } : {}),

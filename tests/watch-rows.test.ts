@@ -130,3 +130,20 @@ describe("rows carry the PR's progress track", () => {
     expect(row!.track?.[1]).toEqual({ name: "Review", state: "waiting", detail: "waiting for code review" });
   });
 });
+
+describe("unresolved review comments show on the icon in front of the line", () => {
+  const row = (facts: Parameters<typeof aFacts>[0]) => watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts(facts) }], "s1", NOW)[0]!;
+
+  test("yellow with a count, when nothing worse is going on", () => {
+    expect(row({ checks: "PENDING", unresolvedThreads: 2 })).toMatchObject({ tone: "waiting", detail: "checks running · 2 unresolved comments" });
+    expect(row({ checks: "PENDING", unresolvedThreads: 1 }).detail).toBe("checks running · 1 unresolved comment");
+  });
+
+  test("a failure stays red, with the count added", () => {
+    expect(row({ checks: "FAIL", failingChecks: ["Build"], unresolvedThreads: 1 })).toMatchObject({ tone: "failed", detail: "checks failed: Build · 1 unresolved comment" });
+  });
+
+  test("none: as before", () => {
+    expect(row({ checks: "PENDING", unresolvedThreads: 0 })).toMatchObject({ tone: "pending", detail: "checks running" });
+  });
+});

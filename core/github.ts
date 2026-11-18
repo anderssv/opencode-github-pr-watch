@@ -182,6 +182,9 @@ export async function prSnapshot(
   if (view.state === "OPEN") {
     const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
+    // Only for the line's icon: never part of the text, so a new comment doesn't wake the model.
+    const unresolved = await tolerate(debug, "unresolved review threads", unresolvedThreads(gh, repo, pr, cwd), undefined, { repo, pr });
+    if (unresolved !== undefined) facts = { ...facts, unresolvedThreads: unresolved };
     const checksApproval = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), [], { repo, pr });
     if (checksApproval.length > 0) facts = { ...facts, expectedChecksApproval: checksApproval };
     if (roleOf) {
@@ -244,6 +247,16 @@ export async function prSnapshot(
     ...runLines,
   ];
   return { text: lines.join("\n"), facts };
+}
+
+/** How many review threads on the PR nobody has resolved (the first 100). */
+export async function unresolvedThreads(gh: Gh, repo: string, pr: number, cwd: string): Promise<number> {
+  const [owner, name] = repo.split("/");
+  const query = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } } } } }";
+  const out = JSON.parse(await gh(["api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${pr}`], cwd)) as {
+    data: { repository: { pullRequest: { reviewThreads: { nodes: { isResolved: boolean }[] } } } };
+  };
+  return out.data.repository.pullRequest.reviewThreads.nodes.filter((thread) => !thread.isResolved).length;
 }
 
 export interface ExpectedDeploy {

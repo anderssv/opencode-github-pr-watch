@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, expectedChecksApproval, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, expectedChecksApproval, unresolvedThreads, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -379,5 +379,15 @@ describe("expectedChecksApproval: environments set by an expression are left to 
 
   test("without a model, those environments stay unknown", async () => {
     expect(await expectedChecksApproval(gh, "o/r", "main", "/w")).toEqual([]);
+  });
+});
+
+describe("unresolvedThreads: review threads on the PR nobody has resolved", () => {
+  test("counted from GraphQL", async () => {
+    const gh: Gh = async (args) => {
+      expect(args.slice(0, 2)).toEqual(["api", "graphql"]);
+      return JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }, { isResolved: false }] } } } } });
+    };
+    expect(await unresolvedThreads(gh, "o/r", 7, "/w")).toBe(2);
   });
 });
