@@ -1,4 +1,5 @@
 import type { AttachedRun } from "./attached-runs";
+import type { PrComment } from "./comments";
 
 export interface CheckView {
   readonly name?: string;
@@ -124,6 +125,10 @@ export interface PrFacts {
   /** Before the merge: the deploy's jobs from its last successful run on the base branch, and the environments that need approval. */
   /** Review threads on the open PR that nobody has resolved; absent when they couldn't be read. */
   readonly unresolvedThreads?: number;
+  /** Every comment on the open PR at the last read, by anyone; absent until read once. */
+  readonly commentIds?: readonly string[];
+  /** The collaborators' comments (who and where, never the text), to report the new ones. */
+  readonly comments?: readonly PrComment[];
   /** Who is asked to review: people by login, teams by name. */
   readonly reviewers?: readonly string[];
   /** Before any of its runs waits: the environments the PR's own workflows deploy to that need approval. */

@@ -192,7 +192,11 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
 
   const snapshot = await ports.snapshot(watch);
   const now = ports.now();
-  const facts = snapshot.facts;
+  // A failed comment read keeps the last one, so nothing is reported again as new.
+  const prev = watch.lastFacts;
+  const facts = snapshot.facts && !snapshot.facts.commentIds && prev?.commentIds
+    ? { ...snapshot.facts, commentIds: prev.commentIds, ...(prev.comments ? { comments: prev.comments } : {}) }
+    : snapshot.facts;
   if (facts) use(facts);
   if (!facts) return { watch: { ...watch, lastCheckedAt: now }, stop: false, delayMs: ACTIVE_POLL_MS };
 
@@ -339,7 +343,8 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
   // A desktop notification too when someone has to act: the agent, or a person (a review, a run approval, the merge).
   const actor = whoActs(facts, now);
-  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent", actor === "agent" || actor === "person");
+  const commented = found.some((event) => /^new (review )?comment/.test(event) || event.endsWith("more new comments"));
+  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent", actor === "agent" || actor === "person" || commented);
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
   const track = trackText(progressTrack(facts, now));

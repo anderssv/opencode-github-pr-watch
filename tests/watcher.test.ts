@@ -755,3 +755,22 @@ describe("the daily review reminder says who it waits for", () => {
     expect(ports.notifications.map((n) => n.text).join()).toContain("still waiting for code review from platform-approvers");
   });
 });
+
+describe("new comments from collaborators are said, without their text", () => {
+  test("after the first read; informs and alerts, doesn't wake", async () => {
+    const before = aFacts({ review: "REVIEW_REQUIRED", commentIds: ["c1"], comments: [{ id: "c1", author: "anna", url: "u1" }] });
+    const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["c1", "t1"], comments: [{ id: "c1", author: "anna", url: "u1" }, { id: "t1", author: "bob", path: "src/a.ts", url: "u2" }] };
+    const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
+    await tick(watchStarted({ lastSnapshot: "commented", lastFacts: before }), ports, settings());
+    expect(ports.notifications[0]!.text).toContain("new review comment by bob on src/a.ts (u2)");
+    expect([ports.notifications[0]!.wake, ports.alerts[0]]).toEqual([false, true]);
+  });
+
+  test("a failed read keeps the last one, so the next read doesn't report old comments as new", async () => {
+    const before = aFacts({ review: "REVIEW_REQUIRED", commentIds: ["c1"], comments: [{ id: "c1", author: "anna", url: "u1" }] });
+    const ports = fakePorts({ snapshots: [aSnapshot("same", { review: "REVIEW_REQUIRED" })], verdicts: ['{"verdict":"wait"}'] });
+    const result = await tick(watchStarted({ lastSnapshot: "same", lastFacts: before }), ports, settings());
+    expect(result.watch.lastFacts?.commentIds).toEqual(["c1"]);
+    expect(ports.notifications).toEqual([]);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, unresolvedThreads, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, prComments, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -382,15 +382,16 @@ describe("expectedChecksApproval: environments set by an expression are left to 
   });
 });
 
-describe("unresolvedThreads: review threads on the PR nobody has resolved", () => {
-  test("counted from GraphQL", async () => {
+describe("prComments: who commented and how many threads are unresolved, in one call", () => {
+  test("read from GraphQL", async () => {
     const gh: Gh = async (args) => {
       expect(args.slice(0, 2)).toEqual(["api", "graphql"]);
-      return JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }, { isResolved: false }] } } } } });
+      return JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { comments: { nodes: [] }, reviewThreads: { nodes: [{ isResolved: false, path: "a.ts", comments: { nodes: [] } }, { isResolved: true, path: "b.ts", comments: { nodes: [] } }] } } } } });
     };
-    expect(await unresolvedThreads(gh, "o/r", 7, "/w")).toBe(2);
+    expect((await prComments(gh, "o/r", 7, "/w")).unresolvedThreads).toBe(1);
   });
 });
+
 
 describe("branchPr: the open PR for a branch", () => {
   test("its number, or none", async () => {

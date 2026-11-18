@@ -6,6 +6,7 @@ import type { WorkflowRole, WorkflowSummary } from "./workflow-role";
 import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironments } from "./merge-triggers";
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
+import { COMMENTS_QUERY, parseComments, type CommentRead } from "./comments";
 import { classifyGhError, healthAfter, pausedText } from "./github-health";
 import { processState } from "./runtime";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
@@ -210,8 +211,8 @@ export async function prSnapshot(
     const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
     // Only for the line's icon: never part of the text, so a new comment doesn't wake the model.
-    const unresolved = await tolerate(debug, "unresolved review threads", unresolvedThreads(gh, repo, pr, cwd), undefined, { repo, pr });
-    if (unresolved !== undefined) facts = { ...facts, unresolvedThreads: unresolved };
+    const read = await tolerate(debug, "comments", prComments(gh, repo, pr, cwd), undefined, { repo, pr });
+    if (read) facts = { ...facts, unresolvedThreads: read.unresolvedThreads, commentIds: read.commentIds, comments: read.comments };
     const checksApproval = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), [], { repo, pr });
     if (checksApproval.length > 0) facts = { ...facts, expectedChecksApproval: checksApproval };
     if (roleOf) {
@@ -276,14 +277,10 @@ export async function prSnapshot(
   return { text: lines.join("\n"), facts };
 }
 
-/** How many review threads on the PR nobody has resolved (the first 100). */
-export async function unresolvedThreads(gh: Gh, repo: string, pr: number, cwd: string): Promise<number> {
+/** Who commented on the PR (never the text) and how many review threads nobody has resolved, in one call. */
+export async function prComments(gh: Gh, repo: string, pr: number, cwd: string): Promise<CommentRead> {
   const [owner, name] = repo.split("/");
-  const query = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100) { nodes { isResolved } } } } }";
-  const out = JSON.parse(await gh(["api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${pr}`], cwd)) as {
-    data: { repository: { pullRequest: { reviewThreads: { nodes: { isResolved: boolean }[] } } } };
-  };
-  return out.data.repository.pullRequest.reviewThreads.nodes.filter((thread) => !thread.isResolved).length;
+  return parseComments(JSON.parse(await gh(["api", "graphql", "-f", `query=${COMMENTS_QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${pr}`], cwd)));
 }
 
 export interface ExpectedDeploy {

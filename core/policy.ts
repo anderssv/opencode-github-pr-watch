@@ -1,4 +1,5 @@
 import { attachedRunEvents } from "./attached-runs";
+import { commentEvents } from "./comments";
 import { nextStep, type PrFacts, type Step } from "./pr-facts";
 
 const MINUTE = 60_000;
@@ -62,6 +63,8 @@ export function events(prev: PrFacts | undefined, next: PrFacts, now: number): s
     found.push(next.autoMerge ? `auto-merge enabled${next.autoMergeBy ? ` by ${next.autoMergeBy}` : ""}` : "auto-merge disabled");
   }
   found.push(...attachedRunEvents(prev.attachedRuns, next.attachedRuns ?? []));
+  // The first read only notes what is there; after it, comments not seen before are said.
+  if (prev.commentIds && next.comments) found.push(...commentEvents(prev.commentIds, next.comments));
   if (next.standaloneRun) {
     if (next.deploy !== prev.deploy) {
       if (next.deploy === "WAITING") found.push(`run approval needed: ${next.waitingJobs.join(", ")}`);
