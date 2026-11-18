@@ -84,3 +84,9 @@ describe("batch membership (plan 13)", () => {
     expect(composeDigest(["o/r#1: merged"], ["Bump x: merged 1/2", "Bump x: merged 1/2"])).toBe("o/r#1: merged\nBump x: merged 1/2");
   });
 });
+
+describe("batch progress: a review that isn't required counts as approved", () => {
+  test("approved when GitHub doesn't ask for a review", () => {
+    expect(batchProgress("2 PRs", [aFacts({ review: "NOT_REQUIRED" }), aFacts({ review: "REVIEW_REQUIRED" })], 0)).toContain("approved 1/2");
+  });
+});

@@ -23,7 +23,7 @@ export function batchProgress(label: string, all: readonly (PrFacts | undefined)
   const facts = all.filter((f) => f?.state !== "CLOSED");
   const total = facts.length;
   const known = facts.filter((f): f is PrFacts => f !== undefined);
-  const approved = known.filter((f) => f.review === "APPROVED" || f.state === "MERGED").length;
+  const approved = known.filter((f) => f.review === "APPROVED" || f.review === "NOT_REQUIRED" || f.state === "MERGED").length;
   const merged = known.filter((f) => f.state === "MERGED").length;
   const deployed = known.filter((f) => nextStep(f, now) === "DEPLOYED").length;
   return `${label}: approved ${approved}/${total} · merged ${merged}/${total} · deployed ${deployed}/${total}${closed > 0 ? ` · closed ${closed}` : ""}`;
