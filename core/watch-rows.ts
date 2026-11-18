@@ -1,6 +1,7 @@
 import { nextStep, type PrFacts, type Step } from "./pr-facts";
 import type { Watch } from "./watcher";
 import type { AttachedRun } from "./attached-runs";
+import { progressTrack, type Stage } from "./progress";
 
 export type WatchTone = "pending" | "waiting" | "failed" | "done";
 
@@ -22,6 +23,8 @@ export interface WatchRow {
   readonly author?: string;
   readonly state?: "OPEN" | "MERGED" | "CLOSED";
   readonly draft?: boolean;
+  /** Where the PR is on its way to production, stage by stage; absent before the first check. */
+  readonly track?: readonly Stage[];
 }
 
 // "3/4 · DEPLOY - Prod" while going, ", 4 steps done" once all of them are.
@@ -112,6 +115,7 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
         ...(watch.lastFacts?.author ? { author: watch.lastFacts.author } : {}),
         ...(watch.lastFacts && ["OPEN", "MERGED", "CLOSED"].includes(watch.lastFacts.state) ? { state: watch.lastFacts.state as "OPEN" | "MERGED" | "CLOSED" } : {}),
         ...(watch.lastFacts?.draft ? { draft: true } : {}),
+        ...(watch.lastFacts ? { track: progressTrack(watch.lastFacts, now) } : {}),
         label: title ? `${watch.id} ${title}` : watch.id,
         url: watch.run ? `https://github.com/${watch.repo}/actions/runs/${watch.run}` : `https://github.com/${watch.repo}/pull/${watch.pr}`,
         detail: approving

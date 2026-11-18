@@ -66,8 +66,8 @@ export function progressTrack(facts: PrFacts, now: number): Stage[] {
   return deploy ? [pr, checks, review, merge, deploy] : [pr, checks, review, merge];
 }
 
-const MARK: Record<StageState, string> = { done: "✓", running: "…", waiting: "⏸", failed: "✗", upcoming: "" };
+export const STAGE_MARKS: Record<StageState, string> = { done: "✓", running: "…", waiting: "⏸", failed: "✗", upcoming: "" };
 
 /** "PR ✓ · Checks ✓ · Review ⏸ waiting for code review · Merge · Deploy" */
 export const trackText = (stages: readonly Stage[]): string =>
-  stages.map((s) => [s.name, MARK[s.state], s.detail].filter(Boolean).join(" ")).join(" · ");
+  stages.map((s) => [s.name, STAGE_MARKS[s.state], s.detail].filter(Boolean).join(" ")).join(" · ");

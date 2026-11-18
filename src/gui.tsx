@@ -10,6 +10,7 @@ import { emptyStore, sessionRows, update, type Change, type Store } from "../cor
 import { lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
+import { STAGE_MARKS as STAGE_MARK, type Stage, type StageState } from "../core/progress";
 import { HIDDEN_BUTTONS_KEY, ROW_BUTTONS, readHiddenButtons, toggleButton, type RowButton } from "../core/row-buttons";
 
 interface Row {
@@ -18,6 +19,7 @@ interface Row {
   readonly url: string;
   readonly detail: string;
   readonly tone: "pending" | "waiting" | "failed" | "done";
+  readonly track?: readonly Stage[];
   readonly runUrl?: string;
   readonly waitingFor?: "code-review" | "run-approval";
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
@@ -44,6 +46,14 @@ const BUTTON_ICONS: Record<RowButton, IconName> = {
   watch: "eye",
   "new-session": "new-session",
   github: "github",
+};
+
+const STAGE_LOOK: Record<StageState, Record<string, string>> = {
+  done: { color: "var(--text-success, #3fb950)" },
+  running: { opacity: "0.85" },
+  waiting: { color: "var(--text-warning, #d29922)" },
+  failed: { color: "var(--text-danger, #e5534b)" },
+  upcoming: { opacity: "0.4" },
 };
 
 const TITLE = "Watched pull requests";
@@ -128,12 +138,33 @@ export default Plugin.define({
       </ctx.ui.Tooltip>
     );
 
+    // A PR's way to production, stage by stage: green done, yellow waiting on a person, red failed, grey upcoming.
+    // One line, never wrapped: each stage's name and mark, the detail ("3/5 · Build", "waiting for code review") on hover.
+    const Track = (props: { readonly stages: readonly Stage[]; readonly after?: string | undefined }): JSX.Element => (
+      <div style={{ "font-size": "12px", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
+        <Index each={props.stages}>
+          {(s, i) => (
+            <>
+              {i > 0 ? <span style={{ opacity: "0.4" }}> · </span> : null}
+              <span title={s().detail ? `${s().name}: ${s().detail}` : s().name} style={{ ...STAGE_LOOK[s().state], cursor: s().detail ? "help" : "default" }}>
+                {s().name}
+                {STAGE_MARK[s().state] ? ` ${STAGE_MARK[s().state]}` : ""}
+              </span>
+            </>
+          )}
+        </Index>
+        <Show when={props.after}>{(after) => <span style={{ opacity: "0.6" }}> · {after()}</span>}</Show>
+      </div>
+    );
+
     // The one line every list shows for a PR: its watch status icon (when watched), text, then the buttons. Those that
     // only sometimes show (the run or runs) come first, so the ones always there (watch or stop, new session, the PR on
     // GitHub) stay in the same columns down the list.
     const PrLineView = (line: {
       readonly text: JSX.Element;
       readonly detail: string;
+      /** Shown after the track, such as how old the PR is. */
+      readonly after?: string;
       readonly url: string;
       readonly row?: Row;
       readonly onWatch?: () => void;
@@ -161,7 +192,9 @@ export default Plugin.define({
           </span>
           <div style={{ flex: "1", "min-width": "0" }}>
             <div style={{ "overflow-wrap": "anywhere" }}>{line.text}</div>
-            <div style={{ opacity: "0.6", "font-size": "12px" }}>{line.detail}</div>
+            <Show when={line.row?.track} fallback={<div style={{ opacity: "0.6", "font-size": "12px" }}>{line.detail}</div>}>
+              {(track) => <Track stages={track()} after={line.after} />}
+            </Show>
           </div>
           <Show when={shown("session") && line.onOpenSession}>
             {(open) => <TipButton icon="speech-bubble" label={`Open the watching session: ${line.row?.sessionTitle ?? ""}`} size="small" onClick={() => open()()} />}
@@ -307,6 +340,7 @@ export default Plugin.define({
               </>
             }
             detail={lineDetail(line.pr, line.merged, row()?.detail, Date.now())}
+            after={lineDetail(line.pr, line.merged, undefined, Date.now())}
             url={line.pr.url}
             row={row()}
             onStop={row() ? () => stopWatching(row()!.id) : undefined}

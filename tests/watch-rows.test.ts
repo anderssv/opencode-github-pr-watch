@@ -10,7 +10,7 @@ describe("watchRows", () => {
     const other = { ...aWatch(), id: "o/r#8", sessionID: "s2" };
 
     expect(watchRows([watch, other], "s1", NOW)).toEqual([
-      { id: "o/r#7", notify: "major", label: "o/r#7 Bump foo", url: "https://github.com/o/r/pull/7", detail: "checks running", tone: "pending", state: "OPEN" },
+      { id: "o/r#7", notify: "major", label: "o/r#7 Bump foo", url: "https://github.com/o/r/pull/7", detail: "checks running", tone: "pending", state: "OPEN", track: expect.any(Array) },
     ]);
   });
 
@@ -127,5 +127,13 @@ describe("rows carry the watch's notify setting", () => {
   test("all when set, major otherwise", () => {
     expect(watchRows([aWatch({ notify: "all", lastFacts: aFacts() })], aWatch().sessionID, NOW)[0]!.notify).toBe("all");
     expect(watchRows([aWatch({ lastFacts: aFacts() })], aWatch().sessionID, NOW)[0]!.notify).toBe("major");
+  });
+});
+
+describe("rows carry the PR's progress track", () => {
+  test("from the last check's facts", () => {
+    const [row] = watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }], "s1", NOW);
+    expect(row!.track?.map((s) => s.name)).toEqual(["PR", "Checks", "Review", "Merge", "Deploy"]);
+    expect(row!.track?.[2]).toEqual({ name: "Review", state: "waiting", detail: "waiting for code review" });
   });
 });

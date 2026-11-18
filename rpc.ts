@@ -16,6 +16,19 @@ const row = {
     author: { type: "string" },
     state: { type: "string", enum: ["OPEN", "MERGED", "CLOSED"] },
     draft: { type: "boolean" },
+    track: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", enum: ["PR", "Checks", "Review", "Merge", "Deploy", "Run"] },
+          state: { type: "string", enum: ["done", "running", "waiting", "failed", "upcoming"] },
+          detail: { type: "string" },
+        },
+        required: ["name", "state"],
+        additionalProperties: false,
+      },
+    },
     runLinks: {
       type: "array",
       items: { type: "object", properties: { label: { type: "string" }, url: { type: "string" } }, required: ["label", "url"], additionalProperties: false },
