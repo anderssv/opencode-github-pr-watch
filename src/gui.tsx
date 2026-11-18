@@ -146,21 +146,22 @@ export default Plugin.define({
     );
 
     // A PR's way to production, stage by stage: green done, yellow waiting on a person, red failed, grey upcoming.
-    // One line, never wrapped: each stage's name and mark, the detail ("3/5 · Build", "waiting for code review") on hover.
+    // Each stage's name and mark, the detail ("3/5 · Build", "waiting for code review") on hover. A narrow panel wraps
+    // between stages, never inside one.
     const Track = (props: { readonly stages: readonly Stage[]; readonly after?: string | undefined }): JSX.Element => (
-      <div style={{ "font-size": "12px", "white-space": "nowrap", overflow: "hidden", "text-overflow": "ellipsis" }}>
+      <div style={{ "font-size": "12px" }}>
         <Index each={props.stages}>
           {(s, i) => (
             <>
               {i > 0 ? <span style={{ opacity: "0.4" }}> · </span> : null}
-              <span title={s().detail ? `${s().name}: ${s().detail}` : s().name} style={{ ...STAGE_LOOK[s().state], cursor: s().detail ? "help" : "default" }}>
+              <span title={s().detail ? `${s().name}: ${s().detail}` : s().name} style={{ ...STAGE_LOOK[s().state], cursor: s().detail ? "help" : "default", "white-space": "nowrap" }}>
                 {s().name}
                 {STAGE_MARK[s().state] ? ` ${STAGE_MARK[s().state]}` : ""}
               </span>
             </>
           )}
         </Index>
-        <Show when={props.after}>{(after) => <span style={{ opacity: "0.6" }}> · {after()}</span>}</Show>
+        <Show when={props.after}>{(after) => <span style={{ opacity: "0.6", "white-space": "nowrap" }}> · {after()}</span>}</Show>
       </div>
     );
 
@@ -305,13 +306,17 @@ export default Plugin.define({
       const openSession = (row: Row) => () => port.openSession(props.session.server.id, row.sessionID!);
       let statusMenu: HTMLDetailsElement | undefined;
       let buttonsMenu: HTMLDetailsElement | undefined;
+      let buttonsArea: HTMLSpanElement | undefined;
       onMount(() => {
         load();
         // Watches update the store as they change; the PR search is refreshed on a timer and on reload.
         const timer = setInterval(load, 3 * 60_000);
         // The status dropdown is a <details>, which only closes on its own button: a click outside or Escape closes it too.
         const closeOutside = (event: PointerEvent) => {
-          for (const menu of [statusMenu, buttonsMenu]) if (menu?.open && !menu.contains(event.target as Node)) menu.open = false;
+          const target = event.target as Node;
+          if (statusMenu?.open && !statusMenu.contains(target)) statusMenu.open = false;
+          // The button that opens the button menu sits outside it, and counts as inside.
+          if (buttonsMenu?.open && !buttonsArea?.contains(target)) buttonsMenu.open = false;
         };
         const closeOnEscape = (event: KeyboardEvent) => {
           if (event.key === "Escape") for (const menu of [statusMenu, buttonsMenu]) if (menu?.open) menu.open = false;
@@ -465,23 +470,26 @@ export default Plugin.define({
                 </For>
               </div>
             </details>
-            <details ref={buttonsMenu} style={{ position: "relative" }}>
-              {/* The host's IconButton is a <button>, which a <summary> can't hold, so the gear is drawn as the summary. */}
-              <summary aria-label="Choose the buttons on each PR line" title="Buttons on each PR line" style={{ cursor: "pointer", "list-style": "none", display: "inline-flex", "align-items": "center", padding: "4px" }}>
-                {/* Not the gear: on each line the gear opens the workflow run. */}
-                <ctx.ui.Icon name="sliders" size="small" />
-              </summary>
+            {/* The host's own icon button, so it looks like the reload button next to it; a <summary> can't hold a
+                button, so the button opens the menu and the summary stays hidden. Not the gear: on each line the gear
+                opens the workflow run. */}
+            <span ref={buttonsArea} style={{ position: "relative", display: "inline-flex" }}>
+            <TipButton icon="sliders" label="Buttons on each PR line" size="small" onClick={() => buttonsMenu && (buttonsMenu.open = !buttonsMenu.open)} />
+            <details ref={buttonsMenu} style={{ position: "absolute", top: "100%", right: "0" }}>
+              <summary style={{ display: "none" }} />
               <div
                 style={{
-                  position: "absolute", "z-index": "10", top: "calc(100% + 4px)", right: "0", "box-sizing": "border-box",
+                  position: "absolute", "z-index": "10", top: "4px", right: "0", "box-sizing": "border-box",
+                  // Never wider than the panel: it opens leftwards from the gear, so a narrow panel would cut it off.
+                  width: "max-content", "max-width": "min(320px, calc(100vw - 48px))",
                   display: "flex", "flex-direction": "column", gap: "6px", padding: "8px", "border-radius": "6px",
                   background: "var(--background-base, #1e1e1e)", border: "1px solid rgba(127,127,127,0.4)", "box-shadow": "0 4px 12px rgba(0,0,0,0.3)",
                 }}
               >
-                <div style={{ "font-weight": "600", "white-space": "nowrap", "padding-bottom": "6px", "border-bottom": "1px solid rgba(127,127,127,0.25)" }}>Buttons on each PR line</div>
+                <div style={{ "font-weight": "600", "padding-bottom": "6px", "border-bottom": "1px solid rgba(127,127,127,0.25)" }}>Buttons on each PR line</div>
                 <For each={ROW_BUTTONS}>
                   {(button) => (
-                    <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer", "white-space": "nowrap" }}>
+                    <label title={button.hint} style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer" }}>
                       <input type="checkbox" checked={shown(button.id)} onChange={(event) => setButtonShown(button.id, event.currentTarget.checked)} />
                       <ctx.ui.Icon name={BUTTON_ICONS[button.id]} size="small" />
                       {button.label}
@@ -490,6 +498,7 @@ export default Plugin.define({
                 </For>
               </div>
             </details>
+            </span>
             <TipButton
               icon="refresh"
               size="small"

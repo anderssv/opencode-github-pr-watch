@@ -1,11 +1,11 @@
 /** The icons a PR line can show, in the order they appear, each of which the user can hide. */
-export const ROW_BUTTONS = [
+export const ROW_BUTTONS: readonly { readonly id: "session" | "run" | "watch" | "new-session" | "github"; readonly label: string; readonly hint?: string }[] = [
   { id: "session", label: "Open the watching session" },
   { id: "run", label: "Open the workflow run" },
-  { id: "watch", label: "Watch or stop watching (hidden, only unwatch_pr stops a watch)" },
+  { id: "watch", label: "Watch or stop watching", hint: "When hidden, only unwatch_pr stops a watch" },
   { id: "new-session", label: "New session about this PR" },
   { id: "github", label: "Open the PR on GitHub" },
-] as const;
+];
 
 export type RowButton = (typeof ROW_BUTTONS)[number]["id"];
 
