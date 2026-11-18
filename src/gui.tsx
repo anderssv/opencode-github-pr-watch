@@ -426,7 +426,8 @@ export default Plugin.define({
             <details ref={buttonsMenu} style={{ position: "relative" }}>
               {/* The host's IconButton is a <button>, which a <summary> can't hold, so the gear is drawn as the summary. */}
               <summary aria-label="Choose the buttons on each PR line" title="Buttons on each PR line" style={{ cursor: "pointer", "list-style": "none", display: "inline-flex", "align-items": "center", padding: "4px" }}>
-                <ctx.ui.Icon name="settings-gear" size="small" />
+                {/* Not the gear: on each line the gear opens the workflow run. */}
+                <ctx.ui.Icon name="sliders" size="small" />
               </summary>
               <div
                 style={{

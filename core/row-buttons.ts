@@ -3,7 +3,7 @@ export const ROW_BUTTONS = [
   { id: "session", label: "Open the watching session" },
   { id: "bell", label: "Report all progress or changes of step" },
   { id: "run", label: "Open the workflow run" },
-  { id: "watch", label: "Watch or stop watching" },
+  { id: "watch", label: "Watch or stop watching (hidden, only unwatch_pr stops a watch)" },
   { id: "new-session", label: "New session about this PR" },
   { id: "github", label: "Open the PR on GitHub" },
 ] as const;
