@@ -99,14 +99,15 @@ export function approvalWait(facts: PrFacts): ApprovalWait | undefined {
 // A person approving a run into an environment, which is not the same as reviewing the code.
 export const approvalText = (wait: ApprovalWait): string => `run approval needed (${wait.kind}): ${wait.names.join(", ")}`;
 
-export type Phase = "review" | "approval" | "ready" | "checks" | "required-checks" | "base-deploy" | "auto-merge" | "auto-update" | "deploy";
+export type Phase = "review" | "approval" | "ready" | "fix" | "waiting" | "checks" | "required-checks" | "base-deploy" | "auto-merge" | "auto-update" | "deploy";
 
 const HOUR = 60 * MINUTE;
 const REMINDER_EVERY_MS = 24 * HOUR;
 export const DEFAULT_PIPELINE_LIMIT_MS = 30 * MINUTE;
 const AUTO_MERGE_READY_LIMIT_MS = 10 * MINUTE;
+const IDLE_LIMIT_MS = 14 * 24 * HOUR;
 
-const TIMEOUTS: Record<Exclude<Phase, "review" | "approval" | "ready">, (limit: string, facts: PrFacts) => string> = {
+const TIMEOUTS: Record<Exclude<Phase, "review" | "approval" | "ready" | "fix" | "waiting">, (limit: string, facts: PrFacts) => string> = {
   checks: (limit) => `checks still running after ${limit}`,
   // A required check whose workflow never triggers (for example a path filter that skips it) blocks the merge
   // forever; GitHub only shows it as BLOCKED.
@@ -118,41 +119,50 @@ const TIMEOUTS: Record<Exclude<Phase, "review" | "approval" | "ready">, (limit: 
 };
 
 /**
- * A watch follows the PR until a person has to act or it is in production. Either the PR is still moving
- * (a phase with its own time limit) or the watch ends with what happened or what the person needs to do.
+ * A watch follows the PR until it is done: deployed, merged without a deploy, or closed. Everything before that is a
+ * phase: moving on its own (with a time limit), waiting on a person, or something to fix (no limit of their own).
  */
 export function phaseOf(facts: PrFacts, now: number): { phase: Phase } | { end: string } {
-  const base = facts.baseRefName;
   switch (nextStep(facts, now)) {
     case "NEEDS_REVIEW": return { phase: "review" };
-    case "CHECKS_WAITING": case "CHECKS_BLOCKED": return { phase: "approval" };
+    case "CHECKS_WAITING": case "CHECKS_BLOCKED": case "DEPLOY_WAITING": return { phase: "approval" };
     case "WAIT_CHECKS": return { phase: facts.checks === "MISSING" ? "required-checks" : "checks" };
-
     case "WAIT_DEPLOY": return { phase: facts.autoMerge ? "auto-merge" : "base-deploy" };
     // Ready without auto-merge waits for someone to merge it, so the merge leads straight into following the deploy.
     case "READY": return { phase: facts.autoMerge ? "auto-merge" : "ready" };
-    case "UPDATE_BRANCH":
-      return facts.autoMerge ? { phase: "auto-update" } : { end: `behind ${base}` };
+    case "UPDATE_BRANCH": return { phase: facts.autoMerge ? "auto-update" : "fix" };
     case "WAIT_DEPLOY_START": case "DEPLOYING": return { phase: "deploy" };
-    case "DEPLOY_WAITING": return { phase: "approval" };
-    case "ADDRESS_REVIEW": return { end: "changes requested" };
-    case "FIX_CHECKS": return { end: `checks failed: ${facts.failingChecks.join(", ")}${runText(facts)}` };
-    case "RESOLVE_CONFLICT": return { end: `conflicts with ${base}` };
-    case "DRAFT": return { end: "draft" };
+    // A watched run on its own is done when it fails: a rerun is a new run, with a watch of its own.
+    case "DEPLOY_FAILED": return facts.standaloneRun ? { end: "the run failed" } : { phase: "fix" };
+    case "ADDRESS_REVIEW": case "FIX_CHECKS": case "RESOLVE_CONFLICT": case "DEPLOY_UNIDENTIFIED": return { phase: "fix" };
+    case "DRAFT": case "DEPLOY_BLOCKED": return { phase: "waiting" };
     case "CLOSED": return { end: "closed without merging" };
     case "DEPLOYED": return { end: facts.standaloneRun ? "the run succeeded" : facts.deployedBy ? deployedByText(facts.deployedBy) : "deployed (merge pipeline succeeded)" };
-    case "DEPLOY_BLOCKED": {
-      const by = facts.blockedBy!;
-      return { end: `deploy queued behind the run of ${by.title} (${by.url}), waiting for approval (that run started ${new Date(by.since).toISOString().slice(0, 16).replace("T", " ")} UTC)` };
-    }
-    case "DEPLOY_FAILED": {
-      const jobs = facts.failedRun?.jobs?.length ? `: ${facts.failedRun.jobs.join(", ")}` : "";
-      return { end: `${facts.standaloneRun ? "the run failed" : `the merge pipeline failed${runText(facts)}`}${jobs}` };
-    }
     case "NO_DEPLOY":
       return { end: facts.deployPossible === false ? "merged; nothing that starts on a merge deploys in this repo" : "merged, and no deploy started for the merge commit" };
     case "NOTHING_TO_DEPLOY": return { end: "merged; nothing to deploy (no deploy job ran for this change)" };
-    case "DEPLOY_UNIDENTIFIED": return { end: `couldn't tell which workflow deploys this repo (saw: ${(facts.undeterminedWorkflows ?? []).join(", ")})` };
+  }
+}
+
+/** What has to be fixed, or what a person is held up by, in words for the message; undefined when nothing is wrong. */
+export function problemOf(facts: PrFacts, now: number): string | undefined {
+  const base = facts.baseRefName;
+  switch (nextStep(facts, now)) {
+    case "UPDATE_BRANCH": return facts.autoMerge ? undefined : `behind ${base}`;
+    case "ADDRESS_REVIEW": return "changes requested";
+    case "FIX_CHECKS": return `checks failed: ${facts.failingChecks.join(", ")}${runText(facts)}`;
+    case "RESOLVE_CONFLICT": return `conflicts with ${base}`;
+    case "DRAFT": return "draft";
+    case "DEPLOY_BLOCKED": {
+      const by = facts.blockedBy!;
+      return `deploy queued behind the run of ${by.title} (${by.url}), waiting for approval (that run started ${new Date(by.since).toISOString().slice(0, 16).replace("T", " ")} UTC)`;
+    }
+    case "DEPLOY_FAILED": {
+      const jobs = facts.failedRun?.jobs?.length ? `: ${facts.failedRun.jobs.join(", ")}` : "";
+      return `${facts.standaloneRun ? "the run failed" : `the merge pipeline failed${runText(facts)}`}${jobs}`;
+    }
+    case "DEPLOY_UNIDENTIFIED": return `couldn't tell which workflow deploys this repo (saw: ${(facts.undeterminedWorkflows ?? []).join(", ")})`;
+    default: return undefined;
   }
 }
 
@@ -163,6 +173,8 @@ export interface EndInput {
   /** Set when a command that will change the PR's state just started this watch. */
   readonly awaiting?: { readonly trigger: Trigger; readonly since: number };
   readonly pipelineLimitMs?: number;
+  /** When the PR last changed; a watch with no change for 14 days ends. */
+  readonly lastChangeAt?: number;
 }
 
 export function endReason(facts: PrFacts, input: EndInput): string | undefined {
@@ -174,16 +186,18 @@ export function endReason(facts: PrFacts, input: EndInput): string | undefined {
   if (stale && awaiting.trigger === "failed-checks" && "end" in current) return `${current.end}; no new run started`;
   if (stale && awaiting.trigger === "behind" && "end" in current) return `${current.end}; no update arrived`;
   if ("end" in current) return current.end;
+  if (input.lastChangeAt !== undefined && now - input.lastChangeAt > IDLE_LIMIT_MS) return "nothing changed for 14 days; call watch_pr again to keep watching";
   // GitHub merges a ready auto-merge PR within a minute or two; when it hasn't, something holds it that the API doesn't show.
   if (current.phase === "auto-merge" && nextStep(facts, now) === "READY") {
     if (now - input.phaseSince < AUTO_MERGE_READY_LIMIT_MS) return undefined;
     return `approved and checks pass, but auto-merge hasn't merged after ${AUTO_MERGE_READY_LIMIT_MS / MINUTE} minutes`;
   }
   // Waiting on people (a review, an environment approval, the merge) has no limit: the watch keeps going.
-  if (current.phase === "review" || current.phase === "approval" || current.phase === "ready") return undefined;
+  const phase = current.phase;
+  if (phase === "review" || phase === "approval" || phase === "ready" || phase === "fix" || phase === "waiting") return undefined;
   const limitMs = input.pipelineLimitMs ?? DEFAULT_PIPELINE_LIMIT_MS;
   if (now - input.phaseSince < limitMs) return undefined;
-  return `${TIMEOUTS[current.phase](`${Math.round(limitMs / MINUTE)} minutes`, facts)}; call watch_pr again to keep watching`;
+  return `${TIMEOUTS[phase](`${Math.round(limitMs / MINUTE)} minutes`, facts)}; call watch_pr again to keep watching`;
 }
 
 export function startDecision(

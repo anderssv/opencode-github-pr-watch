@@ -62,7 +62,7 @@ describe("tick: fixed events, no model", () => {
     expect(ports.notifications[0]!.text).toContain("watch stopped");
   });
 
-  test("stops on a failed deploy and hands back to the agent", async () => {
+  test("a failed deploy is said with the model's diagnosis, and the watch goes on for a rerun", async () => {
     // The model's diagnosis of the failure feeds the suggestion.
     const before = aFacts({ state: "MERGED", mergedAt: NOW - 600_000, deploy: "RUNNING" });
     const ports = fakePorts({ snapshots: [aSnapshot("failed", { state: "MERGED", mergedAt: NOW - 600_000, deploy: "FAILED" })] });
@@ -70,9 +70,9 @@ describe("tick: fixed events, no model", () => {
 
     const result = await tick(watchStarted({ lastSnapshot: "deploying", lastFacts: before }), ports, settings());
 
-    expect(result.stop).toBe(true);
+    expect(result.stop).toBe(false);
     expect(ports.notifications).toHaveLength(1);
-    expect(ports.notifications[0]!.text).toContain("deploy failed");
+    expect(ports.notifications[0]!.text).toContain("the merge pipeline failed");
     expect(ports.notifications[0]!.text).toContain("suggestion: fix needed: CVE in libexpat1");
   });
 
@@ -84,7 +84,8 @@ describe("tick: fixed events, no model", () => {
     await tick(watchStarted({ lastSnapshot: "deploying", lastFacts: before }), ports, settings());
 
     const text = ports.notifications[0]!.text;
-    expect(text).toContain("watch stopped: deployed, but a step after the deploy failed");
+    expect(text).toContain("deployed, but a step after the deploy failed");
+    expect(text).not.toContain("watch stopped");
     expect(text).not.toContain("the merge pipeline failed");
     expect(text).toContain("Register release failed in DEPLOY - Prod");
   });
@@ -385,7 +386,7 @@ describe("tick: failing checks when the watch starts", () => {
     expect(ports.notifications).toEqual([]);
   });
 
-  test("stops waiting once the new run starts, then ends if that run fails too", async () => {
+  test("stops waiting once the new run starts; if that run fails too, it says so and goes on watching", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("running", { checks: "PENDING" }), aSnapshot("failing again", failing)] });
 
     const running = await tick(watchStarted({ lastSnapshot: "failing", lastFacts: aFacts(failing), awaiting }), ports, settings());
@@ -393,7 +394,7 @@ describe("tick: failing checks when the watch starts", () => {
 
     expect(running.stop).toBe(false);
     expect(running.watch.awaiting).toBeUndefined();
-    expect(failedAgain.stop).toBe(true);
+    expect(failedAgain.stop).toBe(false);
     expect(ports.notifications.at(-1)!.text).toContain("checks failed: Trivy");
   });
 });
@@ -427,7 +428,7 @@ describe("tick: facts and a suggestion at the end", () => {
 
     await tick(watchStarted({ lastSnapshot: "ok", lastFacts: aFacts({ checks: "PENDING", author: "app/renovate", authorIsBot: true }) }), ports, settings());
 
-    expect(ports.notifications[0]!.text).toContain("watch stopped: behind main (opened by app/renovate)");
+    expect(ports.notifications[0]!.text).toContain("behind main (opened by app/renovate)");
     expect(ports.notifications[0]!.text).toContain("suggestion (read from the bot's PR description, verify before acting): tick the rebase checkbox in the PR description");
   });
 
@@ -605,9 +606,9 @@ describe("debug log (diagnosing watches)", () => {
 
     await tick(watchStarted({ lastSnapshot: "deploying", lastFacts: aFacts({ state: "MERGED", mergedAt: NOW - 600_000, deploy: "RUNNING" }) }), ports, settings());
 
-    expect(lines.find((l) => l.event === "check")?.fields).toMatchObject({ id: "acme/api#42", step: "DEPLOY_FAILED", events: ["deploy failed"], changed: true });
-    expect(lines.find((l) => l.event === "notify")?.fields.text).toContain("deploy failed");
-    expect(lines.find((l) => l.event === "result")?.fields).toMatchObject({ stop: true });
+    expect(lines.find((l) => l.event === "check")?.fields).toMatchObject({ id: "acme/api#42", step: "DEPLOY_FAILED", changed: true });
+    expect(lines.find((l) => l.event === "notify")?.fields.text).toContain("the merge pipeline failed");
+    expect(lines.find((l) => l.event === "result")?.fields).toMatchObject({ stop: false });
   });
 
   test("a model error is logged even when it isn't reported", async () => {

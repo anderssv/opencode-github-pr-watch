@@ -6,7 +6,7 @@ import { PROGRESSING, type PhaseLimit } from "./timing";
 import { failureSignature, needsBotAdvice, suggestionFor, type Diagnosis } from "./advice";
 import { resolveJudgeModel, type CatalogModel, type ModelRef, type PinnedProvider, type SessionView } from "./model-guard";
 import { nextStep, summaryLine, type PrFacts } from "./pr-facts";
-import { approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
+import { problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
 import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
 const JUDGE_FAILURE_REPORT_MS = 30 * 60_000;
@@ -251,6 +251,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   const end = endReason(facts, {
     phaseSince,
     now,
+    ...(watch.lastChangeAt !== undefined ? { lastChangeAt: changed ? now : watch.lastChangeAt } : {}),
     ...(next.awaiting ? { awaiting: next.awaiting } : {}),
     ...(next.phaseLimit
       ? { pipelineLimitMs: next.phaseLimit.limitMs }
@@ -295,6 +296,19 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   // Every change of where the PR is gets said by rule, so the end of something announced (checks restarted) is never
   // left to the model, which may call it routine. With notify "all", progress within a step is said too.
   // The commit a branch update creates, and the checks it restarts, are the caller's own doing.
+  // Something to fix, or a person held up, is said when it appears, with the facts and a suggestion; the watch goes on.
+  const problem = problemOf(facts, now);
+  if (problem !== undefined && watch.lastFacts && problemOf(watch.lastFacts, now) !== problem) {
+    const advice = await adviceFor(watch, facts, ports, settings, session, now);
+    const author = facts.state === "OPEN" && facts.author ? ` (opened by ${facts.author})` : "";
+    // The model saw the job's steps: the service shipped and only a step after it failed.
+    const stated = advice?.afterDeploy ? `deployed, but a step after the deploy failed: ${advice.cause}` : problem;
+    const suggestion = advice ? `; suggestion${advice.fromPr ? " (read from the bot's PR description, verify before acting)" : ""}: ${advice.text}` : "";
+    // The problem line says what the plain event would, with more detail.
+    const step = nextStep(facts, now);
+    found = found.filter((e) => !((step === "DEPLOY_FAILED" && e === "deploy failed") || (step === "FIX_CHECKS" && e.startsWith("checks failed"))));
+    found.push(`${stated}${author}${suggestion}`);
+  }
   if (found.length === 0 && watch.lastFacts && !expectedCommitArrived) {
     if (nextStep(watch.lastFacts, now) !== nextStep(facts, now)) found.push(stepChangeText(watch.lastFacts, facts, now));
     else if (watch.notify === "all" && stepDetail(watch.lastFacts, now) !== stepDetail(facts, now)) found.push(stepDetail(facts, now));

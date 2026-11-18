@@ -19,7 +19,7 @@ const BY_STEP: Record<Step, Actor | ((facts: PrFacts) => Actor)> = {
   FIX_CHECKS: "agent",
   ADDRESS_REVIEW: "agent",
   RESOLVE_CONFLICT: "agent",
-  DEPLOY_FAILED: "agent",
+  DEPLOY_FAILED: (f) => (f.standaloneRun ? "done" : "agent"),
   DEPLOY_UNIDENTIFIED: "agent",
   NEEDS_REVIEW: "person",
   CHECKS_WAITING: "person",

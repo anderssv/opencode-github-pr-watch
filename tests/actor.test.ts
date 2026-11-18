@@ -42,6 +42,7 @@ describe("whoActs: who has to do something for the PR to move on", () => {
     ["merged, no deploy", merged({ deploy: "NO_RUNS", mergedAt: NOW - 3_600_000 })],
     ["nothing to deploy", merged({ deploy: "NOTHING" })],
     ["closed", aFacts({ state: "CLOSED" })],
+    ["a watched run on its own that failed", merged({ deploy: "FAILED", standaloneRun: { workflow: "Deploy", branch: "main", event: "workflow_dispatch" } as never })],
   ])("done: %s", (_, facts) => {
     expect(whoActs(facts, NOW)).toBe("done");
   });

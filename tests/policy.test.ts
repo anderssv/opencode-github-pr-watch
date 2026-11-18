@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { nextStep } from "../core/pr-facts";
-import { approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay } from "../core/policy";
+import { approvalText, approvalWait, endReason, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay } from "../core/policy";
 import type { PrFacts } from "../core/pr-facts";
 import { suggestionFor } from "../core/advice";
 import { aFacts } from "./mothers";
@@ -97,7 +97,7 @@ describe("events", () => {
 
 const end = (facts: PrFacts, more: Partial<EndInput> = {}) => endReason(facts, { phaseSince: NOW, now: NOW, ...more });
 
-describe("phaseOf: a watch follows the PR until a person has to act or it is in production", () => {
+describe("phaseOf: a watch follows the PR until it is done", () => {
   test.each([
     [aFacts({ review: "REVIEW_REQUIRED" }), "review"],
     [aFacts({ checks: "PENDING" }), "checks"],
@@ -107,28 +107,35 @@ describe("phaseOf: a watch follows the PR until a person has to act or it is in 
     [merged({ deploy: "RUNNING" }), "deploy"],
     [merged({ deploy: "WAITING" }), "approval"],
     [aFacts(), "ready"],
-  ])("%o is still moving: %s", (facts, phase) => {
+    [aFacts({ draft: true }), "waiting"],
+  ])("%o is still going: %s", (facts, phase) => {
     expect(phaseOf(facts, NOW)).toMatchObject({ phase });
   });
 
   test.each([
-    [aFacts({ branch: "BEHIND" }), "behind main"],
-    [aFacts({ review: "CHANGES_REQUESTED" }), "changes requested"],
-    [aFacts({ checks: "FAIL", failingChecks: ["Trivy"] }), "checks failed: Trivy"],
-    [aFacts({ branch: "CONFLICT" }), "conflicts with main"],
-    [aFacts({ draft: true }), "draft"],
+    [aFacts({ branch: "BEHIND" })],
+    [aFacts({ review: "CHANGES_REQUESTED" })],
+    [aFacts({ checks: "FAIL", failingChecks: ["Trivy"] })],
+    [aFacts({ autoMerge: true, checks: "FAIL", failingChecks: ["Build"] })],
+    [aFacts({ branch: "CONFLICT" })],
+    [merged({ deploy: "FAILED" })],
+  ])("%o has something to fix: the watch keeps following it", (facts) => {
+    expect(phaseOf(facts, NOW)).toEqual({ phase: "fix" });
+  });
+
+  test.each([
     [aFacts({ state: "CLOSED" }), "closed without merging"],
     [merged({ deploy: "SUCCEEDED" }), "deployed"],
-    [merged({ deploy: "FAILED" }), "merge pipeline failed"],
     [merged({ deploy: "NO_RUNS", mergedAt: NOW - 3_600_000 }), "no deploy started"],
-  ])("%o needs a person or is done: %s", (facts, reason) => {
+  ])("%o is done: %s", (facts, reason) => {
     expect(phaseOf(facts, NOW)).toEqual({ end: expect.stringContaining(reason) });
   });
 
-  test("checks failing with auto-merge on still needs a person", () => {
-    expect(phaseOf(aFacts({ autoMerge: true, checks: "FAIL", failingChecks: ["Build"] }), NOW)).toEqual({
-      end: expect.stringContaining("checks failed"),
-    });
+  test("what is wrong, for the message when something has to be fixed", () => {
+    expect(problemOf(aFacts({ checks: "FAIL", failingChecks: ["Trivy"] }), NOW)).toContain("checks failed: Trivy");
+    expect(problemOf(merged({ deploy: "FAILED" }), NOW)).toContain("merge pipeline failed");
+    expect(problemOf(aFacts({ branch: "BEHIND" }), NOW)).toBe("behind main");
+    expect(problemOf(aFacts({ review: "REVIEW_REQUIRED" }), NOW)).toBeUndefined();
   });
 });
 
@@ -140,11 +147,17 @@ describe("endReason", () => {
   });
 
   test("ends where phaseOf ends", () => {
-    expect(end(aFacts({ review: "CHANGES_REQUESTED" }))).toContain("changes requested");
+    expect(end(aFacts({ state: "CLOSED" }))).toContain("closed");
   });
 
-  test("ready for merge without auto-merge waits for the merge, without a time limit", () => {
-    expect(end(aFacts(), { phaseSince: NOW - 30 * 86_400_000 })).toBeUndefined();
+  test("waiting on a person or a fix has no time limit of its own", () => {
+    for (const facts of [aFacts(), aFacts({ review: "REVIEW_REQUIRED" }), aFacts({ checks: "FAIL", failingChecks: ["Build"] })]) {
+      expect(end(facts, { phaseSince: NOW - 10 * 86_400_000, lastChangeAt: NOW - 10 * 86_400_000 })).toBeUndefined();
+    }
+  });
+
+  test("a watch where nothing has changed for 14 days ends", () => {
+    expect(end(aFacts({ review: "REVIEW_REQUIRED" }), { lastChangeAt: NOW - 15 * 86_400_000 })).toBe("nothing changed for 14 days; call watch_pr again to keep watching");
   });
 
   test("auto-merge on a PR that is ready ends after 10 minutes, since GitHub merges within a minute or two (plan 10, platform#2328)", () => {
@@ -178,30 +191,11 @@ describe("endReason", () => {
     expect(end(aFacts({ checks: "PENDING" }), { phaseSince: NOW - 31 * 60_000 })).toContain("call watch_pr again");
   });
 
-  test("keeps watching a failed deploy while a rerun it asked for is starting", () => {
-    const awaiting = { trigger: "rerun" as const, since: NOW - 2 * 60_000 };
-    expect(end(merged({ deploy: "FAILED" }), { awaiting })).toBeUndefined();
-    expect(end(merged({ deploy: "FAILED" }), { awaiting: { ...awaiting, since: NOW - 15 * 60_000 } })).toContain("merge pipeline failed");
-  });
-
-  test("waits up to 30 minutes for a new run after failing checks", () => {
-    const failing = aFacts({ checks: "FAIL", failingChecks: ["Trivy"] });
-    expect(end(failing, { awaiting: { trigger: "failed-checks", since: NOW - 20 * 60_000 } })).toBeUndefined();
-    expect(end(failing, { awaiting: { trigger: "failed-checks", since: NOW - 31 * 60_000 } })).toContain(
-      "checks failed: Trivy; no new run started",
-    );
-  });
-
-  test("keeps watching a stale behind/ready/failing state while a branch update it asked for is starting", () => {
-    const awaiting = { trigger: "update-branch" as const, since: NOW - 2 * 60_000 };
-    expect(end(aFacts({ branch: "BEHIND" }), { awaiting })).toBeUndefined();
-    expect(end(aFacts(), { awaiting })).toBeUndefined();
-    expect(end(aFacts({ checks: "FAIL", failingChecks: ["Build"] }), { awaiting })).toBeUndefined();
-  });
-
-  test("failing checks still end the watch once the update's grace period is over", () => {
-    const awaiting = { trigger: "update-branch" as const, since: NOW - 11 * 60_000 };
-    expect(end(aFacts({ checks: "FAIL", failingChecks: ["Build"] }), { awaiting })).toContain("checks failed");
+  test("something to fix keeps the watch going, however long the fix takes", () => {
+    for (const facts of [merged({ deploy: "FAILED" }), aFacts({ checks: "FAIL", failingChecks: ["Trivy"] }), aFacts({ branch: "BEHIND" })]) {
+      expect(end(facts, { awaiting: { trigger: "update-branch", since: NOW - 60 * 60_000 } })).toBeUndefined();
+      expect(end(facts, { phaseSince: NOW - 3 * 86_400_000 })).toBeUndefined();
+    }
   });
 });
 
@@ -215,7 +209,7 @@ describe("startDecision", () => {
   });
 
   test("does not start when a person has to act or it is done, and says why", () => {
-    expect(startDecision(aFacts({ review: "CHANGES_REQUESTED" }), NOW)).toEqual({ start: false, reason: expect.stringContaining("changes requested") });
+    expect(startDecision(aFacts({ state: "CLOSED" }), NOW)).toEqual({ start: false, reason: expect.stringContaining("closed") });
     expect(startDecision(merged({ deploy: "SUCCEEDED" }), NOW)).toEqual({ start: false, reason: expect.stringContaining("deployed") });
   });
 
@@ -230,14 +224,8 @@ describe("startDecision", () => {
     expect(startDecision(aFacts({ branch: "BEHIND" }), NOW)).toEqual({ start: true, awaiting: { trigger: "behind", since: NOW } });
   });
 
-  test("a behind PR that gets no update within 30 minutes ends with the advice", () => {
-    const behind = aFacts({ branch: "BEHIND" });
-    expect(end(behind, { awaiting: { trigger: "behind", since: NOW - 20 * 60_000 } })).toBeUndefined();
-    expect(end(behind, { awaiting: { trigger: "behind", since: NOW - 31 * 60_000 } })).toContain("no update arrived");
-  });
-
-  test("the end states facts only; the advice comes separately as a suggestion", () => {
-    expect(phaseOf(aFacts({ branch: "BEHIND", author: "app/dependabot" }), NOW)).toEqual({ end: "behind main" });
+  test("what is wrong states facts only; the advice comes separately as a suggestion", () => {
+    expect(problemOf(aFacts({ branch: "BEHIND", author: "app/dependabot" }), NOW)).toBe("behind main");
   });
 
   test("starts on a stale state right after update-branch", () => {
@@ -395,7 +383,8 @@ describe("alignedDelay", () => {
 describe("phaseOf: deploy pipeline not identified", () => {
   test("hands back, naming the workflows it saw", () => {
     const facts = aFacts({ state: "MERGED", mergedAt: NOW - 20 * 60_000, deploy: "UNIDENTIFIED", undeterminedWorkflows: ["Docs", "CodeQL"] });
-    expect(phaseOf(facts, NOW)).toEqual({ end: "couldn't tell which workflow deploys this repo (saw: Docs, CodeQL)" });
+    expect(phaseOf(facts, NOW)).toEqual({ phase: "fix" });
+    expect(problemOf(facts, NOW)).toBe("couldn't tell which workflow deploys this repo (saw: Docs, CodeQL)");
   });
 });
 
@@ -410,7 +399,8 @@ describe("deployed by a later run (plan 1)", () => {
 describe("deploy blocked behind a run waiting for approval (plan 2)", () => {
   test("ends with the blocking run, since a person has to approve or cancel it", () => {
     const facts = aFacts({ state: "MERGED", mergedAt: 0, deploy: "BLOCKED", blockedBy: { title: "Apply bass Team (#751)", url: "u", since: Date.parse("2026-10-04T08:00:00Z") } });
-    expect(phaseOf(facts, 1)).toEqual({ end: "deploy queued behind the run of Apply bass Team (#751) (u), waiting for approval (that run started 2026-10-04 08:00 UTC)" });
+    expect(phaseOf(facts, 1)).toEqual({ phase: "waiting" });
+    expect(problemOf(facts, 1)).toBe("deploy queued behind the run of Apply bass Team (#751) (u), waiting for approval (that run started 2026-10-04 08:00 UTC)");
   });
 });
 
@@ -436,15 +426,15 @@ describe("review waiting counts working days only (plan 24, registry#1273)", () 
 describe("failure ends name the run (plan 16)", () => {
   const failedRun = { workflow: "MAIN", url: "https://github.com/o/r/actions/runs/5" };
   test("failed checks and a failed deploy", () => {
-    expect(phaseOf(aFacts({ checks: "FAIL", failingChecks: ["Build"], failedRun }), NOW)).toEqual({ end: "checks failed: Build (MAIN, https://github.com/o/r/actions/runs/5)" });
-    expect(phaseOf(merged({ deploy: "FAILED", failedRun }), NOW)).toEqual({ end: "the merge pipeline failed (MAIN, https://github.com/o/r/actions/runs/5)" });
+    expect(problemOf(aFacts({ checks: "FAIL", failingChecks: ["Build"], failedRun }), NOW)).toBe("checks failed: Build (MAIN, https://github.com/o/r/actions/runs/5)");
+    expect(problemOf(merged({ deploy: "FAILED", failedRun }), NOW)).toBe("the merge pipeline failed (MAIN, https://github.com/o/r/actions/runs/5)");
   });
 });
 
 describe("a failed deploy names its failed jobs (plan 17)", () => {
   test("after the run", () => {
     const facts = merged({ deploy: "FAILED", failedRun: { workflow: "Terraform Organizations", url: "u", jobs: ["Apply acme Organization"] } });
-    expect(phaseOf(facts, NOW)).toEqual({ end: "the merge pipeline failed (Terraform Organizations, u): Apply acme Organization" });
+    expect(problemOf(facts, NOW)).toBe("the merge pipeline failed (Terraform Organizations, u): Apply acme Organization");
   });
 });
 
