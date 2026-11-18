@@ -1,3 +1,4 @@
+import { TRACK_VERSION } from "../core/progress";
 import { describe, expect, test } from "bun:test";
 import { awaitTrigger, judgePrompt, tick } from "../core/watcher";
 import { aFacts, aSession, aSnapshot, aWatch, FakePorts, settings } from "./mothers";
@@ -667,15 +668,22 @@ describe("every step change by rule, progress as the track (acme/admin#41)", () 
 
   test("progress within a step is said as the track, as information, and the model still looks for the unexpected", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5, current: "Build" } })], verdicts: ['{"verdict":"wait"}'] });
-    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000 }), ports, settings());
+    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000, lastTrackVersion: TRACK_VERSION }), ports, settings());
     expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("progress: Checks … 4/5 · Build · Review · Merge · Deploy"), wake: false }]);
     expect(ports.judged).toHaveLength(1);
     expect(result.watch.lastTrack).toBe("Checks … 4/5 · Build · Review · Merge · Deploy");
   });
 
+  test("a new track format is noted silently, not sent as progress", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("3 of 5", running)], verdicts: ['{"verdict":"wait"}'] });
+    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "PR ✓ · Checks … 3/5 · Scan", lastTrackAt: NOW - 120_000, lastTrackVersion: 0 }), ports, settings());
+    expect(ports.notifications).toEqual([]);
+    expect(result.watch.lastTrack).toBe("Checks … 3/5 · Scan · Review · Merge · Deploy");
+  });
+
   test("at most one progress message a minute; the next check says the latest", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5, current: "Build" } })], verdicts: ['{"verdict":"wait"}'] });
-    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 30_000 }), ports, settings());
+    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 30_000, lastTrackVersion: TRACK_VERSION }), ports, settings());
     expect(ports.notifications).toEqual([]);
     expect(result.watch.lastTrack).toBe("old");
   });
@@ -734,7 +742,7 @@ describe("desktop notifications only for what needs someone", () => {
   test("progress doesn't alert", async () => {
     const running = { checks: "PENDING" as const, checksProgress: { done: 3, total: 5 } };
     const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5 } })], verdicts: ['{"verdict":"wait"}'] });
-    await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000 }), ports, settings());
+    await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000, lastTrackVersion: TRACK_VERSION }), ports, settings());
     expect(ports.alerts).toEqual([false]);
   });
 });

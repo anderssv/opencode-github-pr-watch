@@ -7,7 +7,7 @@ import { failureSignature, needsBotAdvice, suggestionFor, type Diagnosis } from 
 import { resolveJudgeModel, type CatalogModel, type ModelRef, type PinnedProvider, type SessionView } from "./model-guard";
 import { nextStep, summaryLine, type PrFacts } from "./pr-facts";
 import { whoActs } from "./actor";
-import { progressTrack, trackText } from "./progress";
+import { progressTrack, trackText, TRACK_VERSION } from "./progress";
 import { overdue, problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
 import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
@@ -55,6 +55,7 @@ export interface Watch {
   /** The phase whose time limit was passed and said; it isn't said again in that phase. */
   readonly overdueReported?: string;
   readonly lastTrack?: string;
+  readonly lastTrackVersion?: number;
   readonly lastTrackAt?: number;
 }
 
@@ -342,10 +343,10 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
   const track = trackText(progressTrack(facts, now));
-  if (watch.lastTrack === undefined || found.length > 0) next = { ...next, lastTrack: track, lastTrackAt: now };
+  if (watch.lastTrack === undefined || watch.lastTrackVersion !== TRACK_VERSION || found.length > 0) next = { ...next, lastTrack: track, lastTrackAt: now, lastTrackVersion: TRACK_VERSION };
   else if (track !== watch.lastTrack && now - (watch.lastTrackAt ?? 0) >= TRACK_EVERY_MS) {
     await say(`progress: ${track}. ${summary}`);
-    next = { ...next, lastTrack: track, lastTrackAt: now };
+    next = { ...next, lastTrack: track, lastTrackAt: now, lastTrackVersion: TRACK_VERSION };
   }
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
     const hours = Math.round((now - phaseSince) / 3_600_000);

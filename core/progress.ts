@@ -5,6 +5,9 @@ import { nextStep, type PrFacts } from "./pr-facts";
  * running, waiting on a person (yellow: a review, a run approval, the merge, a draft), failed (red), or upcoming.
  * A run approval shows on the step it holds up: the checks before the merge, the deploy after it.
  */
+/** Raised when the track's wording changes, so watches note the new wording instead of sending it as progress. */
+export const TRACK_VERSION = 2;
+
 export type StageState = "done" | "running" | "waiting" | "failed" | "upcoming";
 
 export interface Stage {
