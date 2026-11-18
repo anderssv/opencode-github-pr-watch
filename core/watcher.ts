@@ -308,7 +308,9 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     const suggestion = advice ? `; suggestion${advice.fromPr ? " (read from the bot's PR description, verify before acting)" : ""}: ${advice.text}` : "";
     // The problem line says what the plain event would, with more detail.
     const step = nextStep(facts, now);
-    found = found.filter((e) => !((step === "DEPLOY_FAILED" && e === "deploy failed") || (step === "FIX_CHECKS" && e.startsWith("checks failed"))));
+    found = found.filter(
+      (e) => !(stated.startsWith(e) || (step === "DEPLOY_FAILED" && e === "deploy failed") || (step === "FIX_CHECKS" && e.startsWith("checks failed"))),
+    );
     found.push(`${stated}${author}${suggestion}`);
   }
   if (found.length === 0 && watch.lastFacts && !expectedCommitArrived) {

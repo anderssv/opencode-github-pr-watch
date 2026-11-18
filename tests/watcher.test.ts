@@ -695,3 +695,13 @@ describe("what wakes the agent: only what it can act on", () => {
     expect(ports.notifications.map((n) => n.wake)).toEqual([true]);
   });
 });
+
+describe("a new problem is said once, not also as the plain event", () => {
+  test("conflicts", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("conflict", { branch: "CONFLICT", author: "octocat" })] });
+    await tick(watchStarted({ lastSnapshot: "ok", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }), ports, settings());
+    const text = ports.notifications[0]!.text;
+    expect(text).not.toContain("conflicts with main; conflicts with main");
+    expect(text).toContain("conflicts with main (opened by octocat)");
+  });
+});
