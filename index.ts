@@ -440,7 +440,11 @@ export default Plugin.define({
       return login;
     };
     // The last topics made with each model: new PRs join them rather than starting a whole new grouping.
-    const lastTopics = new Map<string, readonly Topic[]>();
+    // Stored, so the first load after a restart keeps the grouping instead of making a new one.
+    const lastTopics = {
+      get: async (modelKey: string) => (await ctx.storage.get(`topics/${modelKey}`)) as readonly Topic[] | undefined,
+      set: (modelKey: string, topics: readonly Topic[]) => ctx.storage.set(`topics/${modelKey}`, topics as never),
+    };
     const searches = new Map<string, { at: number; prs: Promise<MyPr[]> }>();
     const cachedSearch = (key: string, search: () => Promise<MyPr[]>) => {
       const cached = searches.get(key);
@@ -534,7 +538,7 @@ export default Plugin.define({
         const key = `${modelKey}:${prs.map(prID).sort().join(",")}`;
         const cached = topicCache.get(key);
         if (cached) return { topics: await cached };
-        const plan = topicPlan(lastTopics.get(modelKey), prs);
+        const plan = topicPlan(await lastTopics.get(modelKey), prs);
         const ask = (prompt: string) => ctx.generate.text({ prompt, model: { providerID: judge.model.providerID, id: judge.model.id } });
         const topics = (async () => {
           let made: Topic[];
@@ -546,7 +550,7 @@ export default Plugin.define({
             const answer = await ask(topicsPrompt(prs));
             made = parseTopics(answer.text, prs, badAnswer("topics", judge.model, answer.text, { sessionID }));
           }
-          lastTopics.set(modelKey, made);
+          await lastTopics.set(modelKey, made);
           debug("topics", { sessionID, model: modelKey, plan: plan.kind, prs: prs.length, ...(plan.kind === "place" ? { placed: plan.fresh.map(prID) } : {}), topics: made.map((t) => `${t.name} (${t.prs.length})`) });
           return made;
         })();
