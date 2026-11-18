@@ -126,7 +126,7 @@ describe("checks queued behind other runs", () => {
 describe("rows carry the PR's progress track", () => {
   test("from the last check's facts", () => {
     const [row] = watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }], "s1", NOW);
-    expect(row!.track?.map((s) => s.name)).toEqual(["PR", "Checks", "Review", "Merge", "Deploy"]);
-    expect(row!.track?.[2]).toEqual({ name: "Review", state: "waiting", detail: "waiting for code review" });
+    expect(row!.track?.map((s) => s.name)).toEqual(["Checks", "Review", "Merge", "Deploy"]);
+    expect(row!.track?.[1]).toEqual({ name: "Review", state: "waiting", detail: "waiting for code review" });
   });
 });

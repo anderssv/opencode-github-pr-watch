@@ -8,7 +8,7 @@ import { nextStep, type PrFacts } from "./pr-facts";
 export type StageState = "done" | "running" | "waiting" | "failed" | "upcoming";
 
 export interface Stage {
-  readonly name: "PR" | "Checks" | "Review" | "Merge" | "Deploy" | "Run";
+  readonly name: "Checks" | "Review" | "Merge" | "Deploy" | "Run";
   readonly state: StageState;
   readonly detail?: string;
 }
@@ -41,14 +41,7 @@ export function progressTrack(facts: PrFacts, now: number): Stage[] {
   const merged = facts.state === "MERGED";
   const step = nextStep(facts, now);
 
-  const pr =
-    facts.state === "CLOSED" ? stage("PR", "failed", "closed")
-    : merged ? stage("PR", "done")
-    : facts.draft ? stage("PR", "waiting", "draft")
-    : facts.branch === "CONFLICT" ? stage("PR", "failed", `conflicts with ${base}`)
-    : facts.branch === "BEHIND" ? (facts.autoMerge ? stage("PR", "running", `updating from ${base}`) : stage("PR", "failed", `behind ${base}`))
-    : stage("PR", "done");
-
+  // The PR itself (a draft, conflicts, behind, closed) is the status icon in front of the line, not a stage.
   const checks =
     merged ? stage("Checks", "done")
     : facts.checks === "FAIL" ? stage("Checks", "failed", facts.failingChecks.join(", "))
@@ -71,7 +64,7 @@ export function progressTrack(facts: PrFacts, now: number): Stage[] {
     : stage("Merge", "upcoming");
 
   const deploy = deployStage(facts, "Deploy");
-  return deploy ? [pr, checks, review, merge, deploy] : [pr, checks, review, merge];
+  return deploy ? [checks, review, merge, deploy] : [checks, review, merge];
 }
 
 export const STAGE_MARKS: Record<StageState, string> = { done: "✓", running: "…", waiting: "⏸", failed: "✗", upcoming: "" };

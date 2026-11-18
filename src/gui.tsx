@@ -183,7 +183,12 @@ export default Plugin.define({
                 </span>
               }
             >
-              {(row) => <ctx.ui.Icon name={LOOK[row().tone].icon} size="small" />}
+              {(row) => (
+              // The PR itself (a draft, conflicts, behind) and where it is, on hover.
+              <span title={row().detail} style={{ display: "inline-flex" }}>
+                <ctx.ui.Icon name={LOOK[row().tone].icon} size="small" />
+              </span>
+            )}
             </Show>
           </span>
           <div style={{ flex: "1", "min-width": "0" }}>

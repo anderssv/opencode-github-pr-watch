@@ -20,7 +20,7 @@ const row = {
       items: {
         type: "object",
         properties: {
-          name: { type: "string", enum: ["PR", "Checks", "Review", "Merge", "Deploy", "Run"] },
+          name: { type: "string", enum: ["Checks", "Review", "Merge", "Deploy", "Run"] },
           state: { type: "string", enum: ["done", "running", "waiting", "failed", "upcoming"] },
           detail: { type: "string" },
         },
