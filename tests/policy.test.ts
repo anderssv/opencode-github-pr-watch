@@ -300,6 +300,13 @@ describe("reminderDue", () => {
 });
 
 describe("pollDelay", () => {
+  test("a watch with no change for a day is checked every 30 minutes, whatever it waits for", () => {
+    const quiet = NOW - 25 * 3_600_000;
+    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, quiet)).toBe(30 * 60_000);
+    expect(pollDelay(aFacts({ checks: "PENDING" }), NOW, false, quiet)).toBe(30 * 60_000);
+    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, NOW - 3_600_000)).toBe(5 * 60_000);
+  });
+
   test.each([
     [aFacts({ checks: "PENDING" }), 60_000],
     [merged({ deploy: "RUNNING" }), 60_000],

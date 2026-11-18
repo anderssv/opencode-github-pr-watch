@@ -371,7 +371,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     }
   }
 
-  return { watch: next, stop: false, delayMs: pollDelay(facts, now, next.awaiting !== undefined) };
+  return { watch: next, stop: false, delayMs: pollDelay(facts, now, next.awaiting !== undefined, next.lastChangeAt) };
 }
 
 // The suggestion is advice for the main agent, which decides. A failure gets a diagnosis from the guarded model when
