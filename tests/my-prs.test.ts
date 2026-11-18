@@ -102,6 +102,11 @@ describe("one list: my PRs and the watches", () => {
     expect(withWatchedPrs(mine, rows).map((p) => [p.repo, p.number, p.title])).toEqual([["o/r", 1, "Mine"], ["o/dep", 7, "Bump x from 1 to 2"]]);
   });
 
+  test("a watched PR I didn't open keeps its comment count", () => {
+    const counted = [{ ...rows[1]!, comments: { total: 3, unresolved: 1, threads: 1 } }];
+    expect(withWatchedPrs(mine, counted)[1]!.comments).toEqual({ total: 3, unresolved: 1, threads: 1 });
+  });
+
   test("watches of runs without a PR are listed apart", () => {
     expect(runWatches(rows).map((r) => r.id)).toEqual(["o/r run 9"]);
   });

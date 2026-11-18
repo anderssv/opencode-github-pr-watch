@@ -27,6 +27,17 @@ describe("watchRows", () => {
   });
 });
 
+describe("watchRows: comments", () => {
+  test("come from the stored facts", () => {
+    const row = watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts({ comments: { total: 5, unresolved: 2, threads: 1 } }) }], "s1", NOW)[0]!;
+    expect(row.comments).toEqual({ total: 5, unresolved: 2, threads: 1 });
+  });
+
+  test("none when not read", () => {
+    expect(watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts() }], "s1", NOW)[0]!).not.toHaveProperty("comments");
+  });
+});
+
 describe("watchRows: the run link", () => {
   test("comes from the stored facts", () => {
     const row = watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts({ runUrl: "https://github.com/o/r/actions/runs/2" }) }], "s1", NOW)[0]!;

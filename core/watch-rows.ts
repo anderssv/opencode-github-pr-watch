@@ -1,6 +1,7 @@
 import { nextStep, type PrFacts, type Step } from "./pr-facts";
 import type { Watch } from "./watcher";
 import type { AttachedRun } from "./attached-runs";
+import type { CommentCount } from "./comments";
 
 export type WatchTone = "pending" | "waiting" | "failed" | "done";
 
@@ -22,6 +23,7 @@ export interface WatchRow {
   readonly author?: string;
   readonly state?: "OPEN" | "MERGED" | "CLOSED";
   readonly draft?: boolean;
+  readonly comments?: CommentCount;
 }
 
 // "3/4 · DEPLOY - Prod" while going, ", 4 steps done" once all of them are.
@@ -112,6 +114,7 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
         ...(watch.lastFacts?.author ? { author: watch.lastFacts.author } : {}),
         ...(watch.lastFacts && ["OPEN", "MERGED", "CLOSED"].includes(watch.lastFacts.state) ? { state: watch.lastFacts.state as "OPEN" | "MERGED" | "CLOSED" } : {}),
         ...(watch.lastFacts?.draft ? { draft: true } : {}),
+        ...(watch.lastFacts?.comments ? { comments: watch.lastFacts.comments } : {}),
         label: title ? `${watch.id} ${title}` : watch.id,
         url: watch.run ? `https://github.com/${watch.repo}/actions/runs/${watch.run}` : `https://github.com/${watch.repo}/pull/${watch.pr}`,
         detail: approving

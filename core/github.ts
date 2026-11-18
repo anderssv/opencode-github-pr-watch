@@ -7,6 +7,7 @@ import { deployPossible, startsOnMerge } from "./merge-triggers";
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
+import { commentCountsFrom, commentsQuery, type CommentCount, type PrRef } from "./comments";
 import { runFacts } from "./run-facts";
 import { planSummary, type TerraformPlan } from "./terraform";
 import type { Snapshot } from "./watcher";
@@ -182,6 +183,8 @@ export async function prSnapshot(
     const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
   }
+  const comments = (await tolerate(debug, "comment counts", commentCounts(gh, [{ repo, number: pr }], cwd), {}, { repo, pr }))[`${repo}#${pr}`];
+  if (comments) facts = { ...facts, comments };
   if (facts.deploy === "RUNNING") {
     const queued = runs.find((r) => r.event === "push" && r.status !== "completed" && r.status !== "in_progress" && r.jobs.length === 0) as (RunWithJobs & { workflowDatabaseId?: number }) | undefined;
     const blockedBy = queued?.workflowDatabaseId !== undefined
@@ -535,11 +538,38 @@ export async function finishedRunPlans(gh: Gh, repo: string, rollup: readonly Ch
 }
 
 const MY_PR_FIELDS = "repository,number,title,url,isDraft,createdAt,closedAt";
+const COMMENTS_BATCH = 50;
+
+/** Comment counts for the PRs by "owner/repo#number", one GraphQL call per 50 PRs. */
+export async function commentCounts(gh: Gh, prs: readonly PrRef[], cwd: string): Promise<Record<string, CommentCount>> {
+  const read = async (batch: readonly PrRef[]) => commentCountsFrom(JSON.parse(await gh(["api", "graphql", "-f", `query=${commentsQuery(batch)}`], cwd)).data ?? {}, batch);
+  const counts: Record<string, CommentCount> = {};
+  for (let i = 0; i < prs.length; i += COMMENTS_BATCH) {
+    const batch = prs.slice(i, i + COMMENTS_BATCH);
+    try {
+      Object.assign(counts, await read(batch));
+    } catch (err) {
+      if (batch.length === 1) throw err;
+      // GitHub fails the whole query when one PR in it can't be read; asked one by one, only that one goes without.
+      for (const pr of batch) Object.assign(counts, await tolerate(debug, "comment count", read([pr]), {}, { repo: pr.repo, pr: pr.number }));
+    }
+  }
+  return counts;
+}
+
+// The list shows without counts when they can't be read.
+async function withComments(gh: Gh, prs: MyPr[], cwd: string): Promise<MyPr[]> {
+  const counts = await tolerate(debug, "comment counts", commentCounts(gh, prs, cwd), {});
+  return prs.map((pr) => {
+    const count = counts[`${pr.repo}#${pr.number}`];
+    return count ? { ...pr, comments: count } : pr;
+  });
+}
 
 /** Open PRs the gh user created, in every repo. */
 export async function myOpenPrs(gh: Gh, cwd: string): Promise<MyPr[]> {
   const raw: SearchedPr[] = JSON.parse(await gh(["search", "prs", "--author", "@me", "--state", "open", "--limit", "200", "--json", MY_PR_FIELDS], cwd));
-  return raw.map(myPrFrom);
+  return withComments(gh, raw.map(myPrFrom), cwd);
 }
 
 /** PRs the gh user created that merged on or after the given day (YYYY-MM-DD). */
@@ -547,7 +577,7 @@ export async function myMergedPrs(gh: Gh, since: string, cwd: string): Promise<M
   const raw: SearchedPr[] = JSON.parse(
     await gh(["search", "prs", "--author", "@me", "--merged", "--merged-at", `>=${since}`, "--limit", "200", "--json", MY_PR_FIELDS], cwd),
   );
-  return raw.map(myPrFrom);
+  return withComments(gh, raw.map(myPrFrom), cwd);
 }
 
 /**

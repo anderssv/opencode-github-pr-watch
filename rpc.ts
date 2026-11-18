@@ -1,5 +1,12 @@
 import { Rpc } from "@opencode/schema/rpc";
 
+const comments = {
+  type: "object",
+  properties: { total: { type: "number" }, unresolved: { type: "number" }, threads: { type: "number" }, more: { type: "boolean", enum: [true] } },
+  required: ["total", "unresolved", "threads"],
+  additionalProperties: false,
+} as const;
+
 const row = {
   type: "object",
   properties: {
@@ -16,6 +23,7 @@ const row = {
     author: { type: "string" },
     state: { type: "string", enum: ["OPEN", "MERGED", "CLOSED"] },
     draft: { type: "boolean" },
+    comments,
     runLinks: {
       type: "array",
       items: { type: "object", properties: { label: { type: "string" }, url: { type: "string" } }, required: ["label", "url"], additionalProperties: false },
@@ -35,6 +43,7 @@ const myPr = {
     draft: { type: "boolean" },
     createdAt: { type: "string" },
     closedAt: { type: "string" },
+    comments,
   },
   required: ["repo", "number", "title", "url", "draft", "createdAt"],
   additionalProperties: false,

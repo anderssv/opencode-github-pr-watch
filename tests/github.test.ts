@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, commentCounts, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -308,5 +308,21 @@ describe("mergeWorkflows: the workflows a merge into the base branch can start",
     expect(
       await mergeWorkflows(gh({ "repos/acme/docs/contents/.github/workflows/add-to-project.yml?ref=main": issues, "repos/acme/docs/contents/.github/workflows/deploy.yml?ref=main": "on: [push\n" }), "acme/docs", "main", "/w"),
     ).toBeUndefined();
+  });
+});
+
+describe("commentCounts", () => {
+  const node = (comments: number) => ({ pullRequest: { comments: { totalCount: comments }, reviewThreads: { totalCount: 0, nodes: [] } } });
+  // GitHub fails the whole query when one PR in it can't be found.
+  const fakeGh = (missing: number): Gh => async (args) => {
+    const query = args.find((a) => a.startsWith("query="))!;
+    if (query.includes(`pullRequest(number: ${missing})`)) throw new Error(`gh: Could not resolve to a PullRequest with the number of ${missing}.`);
+    const numbers = [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((m) => Number(m[1]));
+    return JSON.stringify({ data: Object.fromEntries(numbers.map((n, i) => [`p${i}`, node(n)])) });
+  };
+
+  test("one PR that can't be read doesn't cost the others their counts", async () => {
+    const counts = await commentCounts(fakeGh(2), [{ repo: "o/r", number: 1 }, { repo: "o/r", number: 2 }, { repo: "o/r", number: 3 }], "/tmp");
+    expect(counts).toEqual({ "o/r#1": { total: 1, unresolved: 0, threads: 0 }, "o/r#3": { total: 3, unresolved: 0, threads: 0 } });
   });
 });

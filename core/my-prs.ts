@@ -1,3 +1,5 @@
+import type { CommentCount } from "./comments";
+
 export interface MyPr {
   readonly repo: string;
   readonly number: number;
@@ -7,6 +9,7 @@ export interface MyPr {
   readonly createdAt: string;
   /** Set for merged PRs: when they were merged. */
   readonly closedAt?: string;
+  readonly comments?: CommentCount;
 }
 
 export interface SearchedPr {
@@ -77,12 +80,12 @@ export const prList = (prs: readonly MyPr[]) => prs.map((pr) => `- ${pr.title}: 
 const PR_WATCH = /^(.+\/.+)#(\d+)$/;
 
 /** My PRs plus the watched PRs I didn't open (a bot's, a colleague's), so one list holds both. */
-export function withWatchedPrs<R extends { readonly id: string; readonly label: string; readonly url: string }>(mine: readonly MyPr[], rows: readonly R[]): MyPr[] {
+export function withWatchedPrs<R extends { readonly id: string; readonly label: string; readonly url: string; readonly comments?: CommentCount }>(mine: readonly MyPr[], rows: readonly R[]): MyPr[] {
   const listed = new Set(mine.map((pr) => `${pr.repo}#${pr.number}`));
   const others = rows.flatMap((row) => {
     const match = row.id.match(PR_WATCH);
     if (!match || listed.has(row.id)) return [];
-    return [{ repo: match[1]!, number: Number(match[2]), title: row.label.slice(row.id.length + 1), url: row.url, draft: false, createdAt: "" }];
+    return [{ repo: match[1]!, number: Number(match[2]), title: row.label.slice(row.id.length + 1), url: row.url, draft: false, createdAt: "", ...(row.comments ? { comments: row.comments } : {}) }];
   });
   return [...mine, ...others];
 }

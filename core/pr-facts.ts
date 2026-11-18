@@ -1,4 +1,5 @@
 import type { AttachedRun } from "./attached-runs";
+import type { CommentCount } from "./comments";
 
 export interface CheckView {
   readonly name?: string;
@@ -73,6 +74,8 @@ export interface PrFacts {
   readonly attachedRuns?: readonly AttachedRun[];
   /** Terraform plan summaries from the PR's finished runs, per job. */
   readonly terraformPlans?: readonly { readonly job: string; readonly summary: string }[];
+  /** The PR's comments and unresolved review threads; for the panel only, never part of the reported state. */
+  readonly comments?: CommentCount;
   /** The PR's own deploy failed, but a later successful run of the same pipeline deployed a commit containing the merge. */
   readonly deployedBy?: { readonly title: string; readonly url: string };
   /** The deploy run is queued with no jobs behind an older run of its workflow that waits for an approval; `since` is when that run started. */

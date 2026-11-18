@@ -10,6 +10,7 @@ import { emptyStore, sessionRows, update, type Change, type Store } from "../cor
 import { lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
+import { commentBadge, type CommentCount } from "../core/comments";
 
 interface Row {
   readonly id: string;
@@ -24,6 +25,7 @@ interface Row {
   /** The session watching it, in the panel's list. */
   readonly sessionID?: string;
   readonly sessionTitle?: string;
+  readonly comments?: CommentCount;
 }
 
 const LOOK: Record<Row["tone"], { icon: IconName; tone?: ComposerPillTone }> = {
@@ -34,6 +36,12 @@ const LOOK: Record<Row["tone"], { icon: IconName; tone?: ComposerPillTone }> = {
 };
 
 type PrGroupView = { readonly name: string; readonly kind: "repo" | "topic" | "all"; readonly prs: readonly MyPr[] };
+
+const COMMENT_LOOK: Record<NonNullable<ReturnType<typeof commentBadge>>["tone"], Record<string, string>> = {
+  unresolved: { color: "var(--text-danger, #e5534b)" },
+  resolved: { opacity: "0.6" },
+  neutral: { opacity: "0.6" },
+};
 
 const TITLE = "Watched pull requests";
 const SORTS: readonly { value: MyPrSort; label: string }[] = [
@@ -116,6 +124,7 @@ export default Plugin.define({
       readonly detail: string;
       readonly url: string;
       readonly row?: Row;
+      readonly comments?: CommentCount;
       readonly onWatch?: () => void;
       readonly onStop?: () => void;
       readonly onNewSession?: () => void;
@@ -176,6 +185,15 @@ export default Plugin.define({
             {(start) => <TipButton icon="new-session" label="New session about this PR" size="small" onClick={() => start()()} />}
           </Show>
           <TipButton icon="github" label="Open the PR" size="small" onClick={() => ctx.system.openExternal(line.url)} />
+          <Show when={commentBadge(line.comments ?? line.row?.comments)}>
+            {(badge) => (
+              // The PR's comments: red while one is unresolved, else neutral.
+              <span style={{ display: "inline-flex", "align-items": "center", gap: "2px", "font-size": "12px", ...COMMENT_LOOK[badge().tone] }}>
+                <TipButton icon="comment" label={badge().tip} size="small" onClick={() => ctx.system.openExternal(`${line.url}/files`)} />
+                <span>{badge().text}</span>
+              </span>
+            )}
+          </Show>
         </div>
       );
     };
@@ -286,6 +304,7 @@ export default Plugin.define({
             detail={lineDetail(line.pr, line.merged, row()?.detail, Date.now())}
             url={line.pr.url}
             row={row()}
+            comments={line.pr.comments}
             onStop={row() ? () => stopWatching(row()!.id) : undefined}
             onWatch={!row() && !line.merged ? () => void ops.watch(props.session.id, line.pr).then((ok) => ok && load()) : undefined}
             onOpenSession={row()?.sessionID ? openSession(row()!) : undefined}
