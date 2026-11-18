@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { nextStep } from "../core/pr-facts";
-import { approvalText, approvalWait, endReason, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay } from "../core/policy";
+import { approvalText, approvalWait, endReason, overdue, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay } from "../core/policy";
 import type { PrFacts } from "../core/pr-facts";
 import { suggestionFor } from "../core/advice";
 import { aFacts } from "./mothers";
@@ -161,34 +161,37 @@ describe("endReason", () => {
   });
 
   test("auto-merge on a PR that is ready ends after 10 minutes, since GitHub merges within a minute or two (plan 10, platform#2328)", () => {
-    expect(end(aFacts({ autoMerge: true }), { phaseSince: NOW - 11 * 60_000 })).toContain("approved and checks pass, but auto-merge hasn't merged after 10 minutes");
-    expect(end(aFacts({ autoMerge: true }), { phaseSince: NOW - 9 * 60_000 })).toBeUndefined();
+    expect(overdue(aFacts({ autoMerge: true }), { phaseSince: NOW - 11 * 60_000, now: NOW })).toContain("approved and checks pass, but auto-merge hasn't merged after 10 minutes");
+    expect(overdue(aFacts({ autoMerge: true }), { phaseSince: NOW - 9 * 60_000, now: NOW })).toBeUndefined();
+    expect(end(aFacts({ autoMerge: true }), { phaseSince: NOW - 11 * 60_000 })).toBeUndefined();
     expect(suggestionFor(aFacts({ autoMerge: true }), NOW)).toBe("merge it directly (gh pr merge)");
   });
 
   test("auto-merge waiting for an earlier deploy keeps the pipeline limit", () => {
-    expect(end(aFacts({ autoMerge: true, deployingOnBase: ["MAIN"] }), { phaseSince: NOW - 29 * 60_000 })).toBeUndefined();
+    expect(overdue(aFacts({ autoMerge: true, deployingOnBase: ["MAIN"] }), { phaseSince: NOW - 29 * 60_000, now: NOW })).toBeUndefined();
   });
 
   test.each([
     [aFacts({ checks: "PENDING" }), 31, "checks still running after 30 minutes"],
     [aFacts({ autoMerge: true, branch: "BEHIND" }), 31, "behind main for 30 minutes"],
     [merged({ deploy: "RUNNING" }), 31, "deploy still running after 30 minutes"],
-  ])("pipeline phases end after 30 minutes in that phase", (facts, minutes, reason) => {
-    expect(end(facts, { phaseSince: NOW - minutes * 60_000 })).toContain(reason);
-    expect(end(facts, { phaseSince: NOW - 29 * 60_000 })).toBeUndefined();
+  ])("pipeline phases are overdue after 30 minutes in that phase, and the watch goes on", (facts, minutes, reason) => {
+    expect(overdue(facts, { phaseSince: NOW - minutes * 60_000, now: NOW })).toContain(reason);
+    expect(overdue(facts, { phaseSince: NOW - 29 * 60_000, now: NOW })).toBeUndefined();
+    expect(end(facts, { phaseSince: NOW - minutes * 60_000 })).toBeUndefined();
   });
 
   test("the pipeline limit can be configured", () => {
-    expect(end(aFacts({ checks: "PENDING" }), { phaseSince: NOW - 45 * 60_000, pipelineLimitMs: 60 * 60_000 })).toBeUndefined();
+    expect(overdue(aFacts({ checks: "PENDING" }), { phaseSince: NOW - 45 * 60_000, now: NOW, pipelineLimitMs: 60 * 60_000 })).toBeUndefined();
   });
 
   test("waiting for review has no time limit", () => {
     expect(end(aFacts({ review: "REVIEW_REQUIRED" }), { phaseSince: NOW - 30 * 86_400_000 })).toBeUndefined();
   });
 
-  test("a timed-out phase says how to keep watching", () => {
-    expect(end(aFacts({ checks: "PENDING" }), { phaseSince: NOW - 31 * 60_000 })).toContain("call watch_pr again");
+  test("waiting on a person or a fix is never overdue", () => {
+    expect(overdue(aFacts({ review: "REVIEW_REQUIRED" }), { phaseSince: NOW - 30 * 86_400_000, now: NOW })).toBeUndefined();
+    expect(overdue(aFacts({ checks: "FAIL", failingChecks: ["B"] }), { phaseSince: NOW - 30 * 86_400_000, now: NOW })).toBeUndefined();
   });
 
   test("something to fix keeps the watch going, however long the fix takes", () => {
@@ -244,11 +247,11 @@ describe("startDecision", () => {
     expect(phaseOf(missing, NOW)).toEqual({ phase: "required-checks" });
   });
 
-  test("a required check that still hasn't reported after the pipeline limit ends the watch, naming it", () => {
+  test("a required check that still hasn't reported after the pipeline limit is overdue, naming it", () => {
     const missing = aFacts({ checks: "MISSING", missingChecks: ["Build status - api-specs"] });
 
-    expect(end(missing, { phaseSince: NOW - 29 * 60_000 })).toBeUndefined();
-    expect(end(missing, { phaseSince: NOW - 31 * 60_000 })).toContain(
+    expect(overdue(missing, { phaseSince: NOW - 29 * 60_000, now: NOW })).toBeUndefined();
+    expect(overdue(missing, { phaseSince: NOW - 31 * 60_000, now: NOW })).toContain(
       "required checks never reported after 30 minutes: Build status - api-specs",
     );
   });
@@ -364,11 +367,11 @@ describe("pollDelay while awaiting a new run", () => {
 });
 
 describe("waiting for an earlier deploy", () => {
-  test("is a phase, not an end, and gives up after 30 minutes", () => {
+  test("is a phase, not an end, and is overdue after 30 minutes", () => {
     const facts = aFacts({ deployingOnBase: ["Audit Log Archive"] });
 
     expect(phaseOf(facts, NOW)).toEqual({ phase: "base-deploy" });
-    expect(endReason(facts, { phaseSince: NOW - 31 * 60_000, now: NOW })).toContain("Audit Log Archive");
+    expect(overdue(facts, { phaseSince: NOW - 31 * 60_000, now: NOW })).toContain("Audit Log Archive");
     expect(pollDelay(facts, NOW)).toBe(60_000);
   });
 });

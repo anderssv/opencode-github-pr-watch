@@ -8,7 +8,7 @@ import { resolveJudgeModel, type CatalogModel, type ModelRef, type PinnedProvide
 import { nextStep, summaryLine, type PrFacts } from "./pr-facts";
 import { whoActs } from "./actor";
 import { progressTrack, trackText } from "./progress";
-import { problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
+import { overdue, problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
 import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
 const JUDGE_FAILURE_REPORT_MS = 30 * 60_000;
@@ -52,6 +52,8 @@ export interface Watch {
   /** When the PR was first seen ready for merge; it is only said once a second check agrees. */
   readonly readySince?: number;
   /** The progress track last said (or noted at the first check), and when; it is said again at most once a minute. */
+  /** The phase whose time limit was passed and said; it isn't said again in that phase. */
+  readonly overdueReported?: string;
   readonly lastTrack?: string;
   readonly lastTrackAt?: number;
 }
@@ -253,6 +255,25 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     id: watch.id, step: nextStep(facts, now), phase, changed, events: found,
     ...(watch.awaiting ? { awaiting: watch.awaiting.trigger } : {}), summary,
   });
+  // A running phase past its limit is said once, with what it normally takes and the model's stuck-or-slow judgement,
+  // and the watch goes on. Still progressing at the learned limit: as long again once, without a message.
+  const limitMs = next.phaseLimit ? next.phaseLimit.limitMs : settings.pipelineLimitMs;
+  const late = overdue(facts, { phaseSince, now, ...(limitMs !== undefined ? { pipelineLimitMs: limitMs } : {}) });
+  if (next.overdueReported !== undefined && next.overdueReported !== phase) {
+    const { overdueReported: _gone, ...rest } = next;
+    next = rest;
+  }
+  if (late && next.overdueReported !== phase) {
+    const basis = next.phaseLimit?.basis;
+    const stall = basis ? await stallCheck(watch, facts, ports, settings, session, basis) : undefined;
+    if (stall?.startsWith(PROGRESSING) && next.phaseLimit && !next.phaseLimit.extended) {
+      next = { ...next, phaseLimit: { ...next.phaseLimit, limitMs: next.phaseLimit.limitMs * 2, extended: true } };
+    } else {
+      const detail = [basis, stall].filter(Boolean).join("; ");
+      await say(`${late}${detail ? ` (${detail})` : ""}; still watching. ${summary}`, true);
+      next = { ...next, overdueReported: phase };
+    }
+  }
   const end = endReason(facts, {
     phaseSince,
     now,
@@ -269,17 +290,9 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   }
   if (end) {
     const what = found.length > 0 ? `${found.join("; ")}. ` : "";
+    // Inside a phase the only end is a watch where nothing has changed for 14 days.
     if ("phase" in current) {
-      // Still running past its limit: say what it normally takes, and let the model judge stuck or slow.
-      const basis = next.phaseLimit?.basis;
-      const stall = basis ? await stallCheck(watch, facts, ports, settings, session, basis) : undefined;
-      // Still progressing: give it as long again, once, without a message; hand back if it stalls or passes that too.
-      if (stall?.startsWith(PROGRESSING) && next.phaseLimit && !next.phaseLimit.extended) {
-        const extended: Watch = { ...next, phaseLimit: { ...next.phaseLimit, limitMs: next.phaseLimit.limitMs * 2, extended: true } };
-        return { watch: extended, stop: false, delayMs: pollDelay(facts, now, next.awaiting !== undefined) };
-      }
-      const detail = [basis, stall].filter(Boolean).join("; ");
-      await say(`${what}watch stopped: ${end}${detail ? ` (${detail})` : ""}. ${summary}`, true);
+      await say(`${what}watch stopped: ${end}. ${summary}`, true);
       return { watch: next, stop: true, delayMs: 0 };
     }
     if (facts.state === "CLOSED" && facts.authorIsBot) {

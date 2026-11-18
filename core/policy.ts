@@ -190,17 +190,26 @@ export function endReason(facts: PrFacts, input: EndInput): string | undefined {
   if (stale && awaiting.trigger === "behind" && "end" in current) return `${current.end}; no update arrived`;
   if ("end" in current) return current.end;
   if (input.lastChangeAt !== undefined && now - input.lastChangeAt > IDLE_LIMIT_MS) return "nothing changed for 14 days; call watch_pr again to keep watching";
+  return undefined;
+}
+
+/**
+ * A running phase past its time limit: said once, and the watch goes on. Waiting on a person or a fix has no limit.
+ */
+export function overdue(facts: PrFacts, input: Pick<EndInput, "phaseSince" | "now" | "pipelineLimitMs">): string | undefined {
+  const { now } = input;
+  const current = phaseOf(facts, now);
+  if ("end" in current) return undefined;
   // GitHub merges a ready auto-merge PR within a minute or two; when it hasn't, something holds it that the API doesn't show.
   if (current.phase === "auto-merge" && nextStep(facts, now) === "READY") {
     if (now - input.phaseSince < AUTO_MERGE_READY_LIMIT_MS) return undefined;
     return `approved and checks pass, but auto-merge hasn't merged after ${AUTO_MERGE_READY_LIMIT_MS / MINUTE} minutes`;
   }
-  // Waiting on people (a review, an environment approval, the merge) has no limit: the watch keeps going.
   const phase = current.phase;
   if (phase === "review" || phase === "approval" || phase === "ready" || phase === "fix" || phase === "waiting") return undefined;
   const limitMs = input.pipelineLimitMs ?? DEFAULT_PIPELINE_LIMIT_MS;
   if (now - input.phaseSince < limitMs) return undefined;
-  return `${TIMEOUTS[phase](`${Math.round(limitMs / MINUTE)} minutes`, facts)}; call watch_pr again to keep watching`;
+  return TIMEOUTS[phase](`${Math.round(limitMs / MINUTE)} minutes`, facts);
 }
 
 export function startDecision(

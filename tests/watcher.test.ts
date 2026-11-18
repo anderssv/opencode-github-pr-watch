@@ -209,7 +209,7 @@ describe("tick: waiting", () => {
     ]);
   });
 
-  test("ends a pipeline phase after 30 minutes and says how to keep watching", async () => {
+  test("a pipeline phase past 30 minutes is said once, waking the agent, and the watch goes on", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("running", moving)] });
 
     const result = await tick(
@@ -218,9 +218,15 @@ describe("tick: waiting", () => {
       settings(),
     );
 
-    expect(result.stop).toBe(true);
+    expect(result.stop).toBe(false);
+    expect(ports.notifications).toHaveLength(1);
     expect(ports.notifications[0]!.text).toContain("checks still running after 30 minutes");
-    expect(ports.notifications[0]!.text).toContain("call watch_pr again");
+    expect(ports.notifications[0]!.text).toContain("still watching");
+    expect(ports.notifications[0]!.wake).toBe(true);
+
+    const again = fakePorts({ snapshots: [aSnapshot("running", moving)] });
+    await tick(result.watch, again, settings());
+    expect(again.notifications).toEqual([]);
   });
 
   test("measures the time limit from when the phase began, not from the start of the watch", async () => {
@@ -454,7 +460,7 @@ describe("tick: time limits from history", () => {
     expect(result.watch.phaseLimit).toEqual(ports.limit);
   });
 
-  test("hands back past the learned limit, with the basis and the model's stall check", async () => {
+  test("past the learned limit it says so, with the basis and the model's stall check, and goes on", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("running", moving)] });
     ports.stall = "looks stuck: no step finished in 20 min";
     const limit = { limitMs: 18 * 60_000, basis: "normally under 12 min (p90 of last 20 runs)" };
@@ -465,7 +471,7 @@ describe("tick: time limits from history", () => {
       settings(),
     );
 
-    expect(result.stop).toBe(true);
+    expect(result.stop).toBe(false);
     const text = ports.notifications[0]!.text;
     expect(text).toContain("checks still running after 18 minutes");
     expect(text).toContain("normally under 12 min");
@@ -488,7 +494,7 @@ describe("tick: time limits from history", () => {
     expect(result.watch.phaseLimit).toEqual({ limitMs: 36 * 60_000, basis: limit.basis, extended: true });
   });
 
-  test("past the doubled limit it hands back, even if still progressing", async () => {
+  test("past the doubled limit it says so, even if still progressing, and goes on", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("running", moving)] });
     ports.stall = "looks slow but progressing: apply still advancing";
     const limit = { limitMs: 36 * 60_000, basis: "normally under 12 min (p90 of last 20 runs)", extended: true };
@@ -499,7 +505,7 @@ describe("tick: time limits from history", () => {
       settings(),
     );
 
-    expect(result.stop).toBe(true);
+    expect(result.stop).toBe(false);
     expect(ports.notifications[0]!.text).toContain("looks slow but progressing");
   });
 
