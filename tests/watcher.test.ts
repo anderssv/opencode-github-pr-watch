@@ -746,3 +746,12 @@ describe("desktop notifications only for what needs someone", () => {
     expect(ports.alerts).toEqual([false]);
   });
 });
+
+describe("the daily review reminder says who it waits for", () => {
+  test("with the requested reviewers", async () => {
+    const waiting = { review: "REVIEW_REQUIRED" as const, reviewers: ["platform-approvers"] };
+    const ports = fakePorts({ snapshots: [aSnapshot("waiting", waiting)] });
+    await tick(watchStarted({ phase: "review", phaseSince: NOW - 26 * 3_600_000, lastSnapshot: "waiting", lastFacts: aFacts(waiting) }), ports, settings());
+    expect(ports.notifications.map((n) => n.text).join()).toContain("still waiting for code review from platform-approvers");
+  });
+});

@@ -22,6 +22,8 @@ export interface PrView {
   readonly reviewDecision: string;
   readonly mergeStateStatus: string;
   readonly autoMergeRequest: unknown;
+  /** People (login) and teams (name) asked to review. */
+  readonly reviewRequests?: readonly { readonly login?: string; readonly name?: string }[];
   readonly mergedAt: string | null;
   readonly mergeCommit: { readonly oid: string } | null;
   readonly statusCheckRollup: readonly CheckView[];
@@ -122,6 +124,8 @@ export interface PrFacts {
   /** Before the merge: the deploy's jobs from its last successful run on the base branch, and the environments that need approval. */
   /** Review threads on the open PR that nobody has resolved; absent when they couldn't be read. */
   readonly unresolvedThreads?: number;
+  /** Who is asked to review: people by login, teams by name. */
+  readonly reviewers?: readonly string[];
   /** Before any of its runs waits: the environments the PR's own workflows deploy to that need approval. */
   readonly expectedChecksApproval?: readonly string[];
   readonly expectedDeploy?: { readonly jobs: readonly string[]; readonly approval: readonly string[] };
@@ -257,6 +261,7 @@ export function factsFrom(
     deployingOnBase: deployingOnBase(view.statusCheckRollup, baseRuns),
     baseRefName: view.baseRefName,
     review: REVIEWS[view.reviewDecision] ?? "NOT_REQUIRED",
+    ...reviewersOf(view),
     branch: BRANCHES[view.mergeStateStatus] ?? "OK",
     ...checksOf(view.statusCheckRollup, requiredChecks, rerunningWorkflows),
     ...(mergedAt === undefined ? {} : { mergedAt }),
@@ -405,4 +410,9 @@ function checksRun(rollup: readonly CheckView[]): Pick<PrFacts, "runUrl" | "chec
     ...(failedJob ? { failureKey: failedJob } : {}),
     ...(failedRunUrl ? { failedRun: { workflow: failedCheck!.workflowName ?? checkName(failedCheck!), url: failedRunUrl } } : {}),
   };
+}
+
+function reviewersOf(view: PrView): { reviewers?: readonly string[] } {
+  const names = (view.reviewRequests ?? []).map((r) => r.login ?? r.name).filter((n): n is string => typeof n === "string" && n !== "");
+  return names.length > 0 ? { reviewers: names } : {};
 }

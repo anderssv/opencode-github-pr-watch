@@ -71,3 +71,11 @@ describe("the expected approval on the PR's checks", () => {
     expect(progressTrack(facts, NOW)[0]).toEqual({ name: "Checks", state: "waiting", detail: "run approval: Plan prod" });
   });
 });
+
+describe("the Review stage names who is asked", () => {
+  test("in its detail", () => {
+    expect(progressTrack(aFacts({ review: "REVIEW_REQUIRED", reviewers: ["octocat", "platform-approvers"] }), NOW)[1]).toEqual({
+      name: "Review", state: "waiting", detail: "waiting for code review from octocat, platform-approvers",
+    });
+  });
+});

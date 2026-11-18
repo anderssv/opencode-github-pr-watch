@@ -668,3 +668,14 @@ describe("bookkeeping jobs: change detection and status jobs don't mean a pipeli
     }
   });
 });
+
+describe("who is asked to review", () => {
+  test("people by login, teams by name", () => {
+    const view = aPrView({ reviewRequests: [{ login: "octocat" }, { name: "platform-approvers", slug: "o/platform-approvers" }] } as never);
+    expect(factsFrom(view, [], NOW).reviewers).toEqual(["octocat", "platform-approvers"]);
+  });
+
+  test("none asked: none listed", () => {
+    expect(factsFrom(aPrView({}), [], NOW).reviewers).toBeUndefined();
+  });
+});

@@ -350,7 +350,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   }
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
     const hours = Math.round((now - phaseSince) / 3_600_000);
-    await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review (${hours} h). ${summary}`, false, true);
+    await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review${facts.reviewers?.length ? ` from ${facts.reviewers.join(", ")}` : ""} (${hours} h). ${summary}`, false, true);
     next = { ...next, lastReminderAt: now };
   }
 

@@ -57,7 +57,7 @@ export function progressTrack(facts: PrFacts, now: number): Stage[] {
   const review =
     merged || facts.review === "APPROVED" || facts.review === "NOT_REQUIRED" ? stage("Review", "done")
     : facts.review === "CHANGES_REQUESTED" ? stage("Review", "failed", "changes requested")
-    : checks.state === "done" ? stage("Review", "waiting", "waiting for code review")
+    : checks.state === "done" ? stage("Review", "waiting", `waiting for code review${facts.reviewers?.length ? ` from ${facts.reviewers.join(", ")}` : ""}`)
     : stage("Review", "upcoming");
 
   const merge =

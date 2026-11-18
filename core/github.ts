@@ -79,7 +79,7 @@ export const runGh: Gh = async (args, cwd) => {
 /** Why every GitHub call is paused right now, for the panel; undefined when they aren't. */
 export const githubPaused = () => pausedText(processState().github, Date.now());
 
-const PR_FIELDS = "headRefOid,author,state,isDraft,baseRefName,title,url,reviewDecision,mergeStateStatus,autoMergeRequest,mergedAt,mergeCommit,statusCheckRollup";
+const PR_FIELDS = "headRefOid,author,reviewRequests,state,isDraft,baseRefName,title,url,reviewDecision,mergeStateStatus,autoMergeRequest,mergedAt,mergeCommit,statusCheckRollup";
 
 
 export interface RunView {

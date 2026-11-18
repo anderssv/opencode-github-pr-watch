@@ -52,7 +52,7 @@ const STEPS: Record<Step, { detail: (facts: PrFacts) => string; tone: WatchTone 
       (f.review === "REVIEW_REQUIRED" ? " · waiting for code review" : ""),
     tone: "waiting",
   },
-  NEEDS_REVIEW: { detail: () => "waiting for code review", tone: "waiting" },
+  NEEDS_REVIEW: { detail: (f) => `waiting for code review${f.reviewers?.length ? ` from ${f.reviewers.join(", ")}` : ""}`, tone: "waiting" },
   WAIT_DEPLOY: { detail: (f) => `waiting for ${f.baseRefName} to finish deploying`, tone: "pending" },
   READY: { detail: (f) => (f.autoMerge ? "auto-merging" : "ready to merge"), tone: "waiting" },
   WAIT_DEPLOY_START: { detail: () => "merged, deploy starting", tone: "pending" },
