@@ -54,7 +54,8 @@ export function progressTrack(facts: PrFacts, now: number): Stage[] {
     : facts.checks === "FAIL" ? stage("Checks", "failed", facts.failingChecks.join(", "))
     : facts.waitingChecks.length > 0 ? stage("Checks", "waiting", `run approval: ${facts.waitingChecks.join(", ")}`)
     : (facts.blockedChecks?.length ?? 0) > 0 ? stage("Checks", "waiting", "queued behind runs waiting for approval")
-    : facts.checks === "PENDING" || facts.checks === "MISSING" ? stage("Checks", "running", progress(facts.checksProgress))
+    : facts.checks === "PENDING" || facts.checks === "MISSING"
+      ? stage("Checks", "running", [progress(facts.checksProgress), ...(facts.expectedChecksApproval?.length ? [`run approval for ${facts.expectedChecksApproval.join(", ")}`] : [])].filter(Boolean).join(" · ") || undefined)
     : stage("Checks", "done");
 
   const review =

@@ -3,7 +3,7 @@ import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-
 import { logTail } from "./log-excerpt";
 import { approvalLine, upToDateLine } from "./pr-status";
 import type { WorkflowRole, WorkflowSummary } from "./workflow-role";
-import { deployPossible, startsOnMerge, workflowEnvironments } from "./merge-triggers";
+import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironments } from "./merge-triggers";
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
@@ -114,6 +114,7 @@ export async function prSnapshot(
   now = Date.now(),
   roleOf?: RoleLookup,
   noDeploy = false,
+  guessEnvironments?: EnvironmentGuess,
 ): Promise<Snapshot> {
   let view: PrView;
   try {
@@ -181,6 +182,8 @@ export async function prSnapshot(
   if (view.state === "OPEN") {
     const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
+    const checksApproval = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), [], { repo, pr });
+    if (checksApproval.length > 0) facts = { ...facts, expectedChecksApproval: checksApproval };
     if (roleOf) {
       const expected = await tolerate(debug, "expected deploy", cachedExpectedDeploy(gh, repo, view.baseRefName, cwd, roleOf, now), undefined, { repo, pr });
       if (expected) facts = { ...facts, expectedDeploy: expected };
@@ -271,13 +274,64 @@ async function readExpectedDeploy(gh: Gh, repo: string, base: string, cwd: strin
     ) as { databaseId: number }[];
     if (last) jobs.push(...(await jobsOf(gh, repo, last.databaseId, cwd)).filter((job) => job.conclusion !== "skipped").map((job) => job.name));
   }
+  return { expected: { jobs: [...new Set(jobs)], approval: await protectedEnvironments(gh, repo, environments, cwd) }, complete };
+}
+
+/** The environments, of those given, that need a reviewer's approval; one that can't be read is left out. */
+async function protectedEnvironments(gh: Gh, repo: string, environments: readonly string[], cwd: string): Promise<string[]> {
   const approval: string[] = [];
   for (const env of new Set(environments)) {
     const rules = await tolerate(debug, "environment protection", gh(["api", `repos/${repo}/environments/${encodeURIComponent(env)}`], cwd), undefined, { repo, env });
     const parsed = rules ? (JSON.parse(rules) as { protection_rules?: { type: string }[] }) : undefined;
     if (parsed?.protection_rules?.some((rule) => rule.type === "required_reviewers")) approval.push(env);
   }
-  return { expected: { jobs: [...new Set(jobs)], approval }, complete };
+  return approval;
+}
+
+/** The model's reading of the environments a workflow file's jobs use for a pull request; undefined when it can't tell. */
+export type EnvironmentGuess = (file: string, base: string) => Promise<string[] | undefined>;
+
+// An environment set by an expression, directly or as an input to a shared workflow, which no general rule can read.
+const ENV_EXPRESSION = /environment:\s*['"]?\$\{\{/;
+
+/**
+ * The environments that the workflows a pull request into the base branch starts deploy to, and that need approval.
+ * Names in the file are read as they are; names set by an expression come from the model, and only those the repo
+ * really has count. `complete` is false when a model answer was needed and not given.
+ */
+async function readChecksApproval(gh: Gh, repo: string, base: string, cwd: string, guess?: EnvironmentGuess): Promise<{ approval: string[]; complete: boolean }> {
+  const { workflows } = JSON.parse(await gh(["api", `repos/${repo}/actions/workflows`], cwd)) as { workflows: { id: number; path: string; state: string }[] };
+  const environments: string[] = [];
+  let complete = true;
+  let known: Set<string> | undefined;
+  for (const w of workflows.filter((w) => w.state === "active" && w.path.startsWith(".github/"))) {
+    const file = await tolerate(debug, "workflow file", gh(["api", `repos/${repo}/contents/${w.path}?ref=${encodeURIComponent(base)}`, "-H", "Accept: application/vnd.github.raw"], cwd), undefined, { repo, path: w.path });
+    if (!file || !startsOnPullRequest(file, base)) continue;
+    environments.push(...workflowEnvironments(file));
+    if (!ENV_EXPRESSION.test(file)) continue;
+    const guessed = guess ? await tolerate(debug, "environments of a workflow", guess(file, base), undefined, { repo, path: w.path }) : undefined;
+    if (!guessed) {
+      complete = false;
+      continue;
+    }
+    known ??= new Set(((JSON.parse(await gh(["api", `repos/${repo}/environments`], cwd)) as { environments?: { name: string }[] }).environments ?? []).map((e) => e.name));
+    environments.push(...guessed.filter((name) => known!.has(name)));
+  }
+  return { approval: await protectedEnvironments(gh, repo, environments, cwd), complete };
+}
+
+export async function expectedChecksApproval(gh: Gh, repo: string, base: string, cwd: string, guess?: EnvironmentGuess): Promise<string[]> {
+  return (await readChecksApproval(gh, repo, base, cwd, guess)).approval;
+}
+
+const checksApprovals = new Map<string, { at: number; approval: string[] }>();
+async function cachedChecksApproval(gh: Gh, repo: string, base: string, cwd: string, now: number, guess?: EnvironmentGuess): Promise<string[]> {
+  const key = `${repo}@${base}`;
+  const kept = checksApprovals.get(key);
+  if (kept && now - kept.at < EXPECTED_FOR_MS) return kept.approval;
+  const read = await readChecksApproval(gh, repo, base, cwd, guess);
+  if (read.complete) checksApprovals.set(key, { at: now, approval: read.approval });
+  return read.approval;
 }
 
 export async function expectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup): Promise<ExpectedDeploy | undefined> {

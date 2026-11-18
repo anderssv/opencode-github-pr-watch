@@ -61,3 +61,15 @@ describe("the expected deploy, before the merge", () => {
     expect(progressTrack(facts, NOW).at(-1)).toEqual({ name: "Deploy", state: "running", detail: "1/3 · Dev" });
   });
 });
+
+describe("the expected approval on the PR's checks", () => {
+  test("said on the Checks stage while they run, before they reach it", () => {
+    const facts = aFacts({ checks: "PENDING", checksProgress: { done: 2, total: 5 }, expectedChecksApproval: ["prod"] });
+    expect(progressTrack(facts, NOW)[1]).toEqual({ name: "Checks", state: "running", detail: "2/5 · run approval for prod" });
+  });
+
+  test("once a run waits, what it waits for replaces the expectation", () => {
+    const facts = aFacts({ checks: "PENDING", waitingChecks: ["Plan prod"], expectedChecksApproval: ["prod"] });
+    expect(progressTrack(facts, NOW)[1]).toEqual({ name: "Checks", state: "waiting", detail: "run approval: Plan prod" });
+  });
+});

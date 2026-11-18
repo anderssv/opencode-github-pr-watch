@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { matchWorkflow, parseRole, rolePrompt } from "../core/workflow-role";
+import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt } from "../core/workflow-role";
 
 describe("rolePrompt", () => {
   test("gives the model the workflow's name, path, jobs and file, and asks for deploy or other", () => {
@@ -40,5 +40,18 @@ describe("matchWorkflow", () => {
 
   test("nothing for an unknown name", () => {
     expect(matchWorkflow("deploy", workflows)).toBeUndefined();
+  });
+});
+
+describe("environmentsPrompt: which environments a workflow's jobs use for a pull request", () => {
+  test("asks for the names as JSON, with the event and base branch", () => {
+    const prompt = environmentsPrompt("jobs: {}", "main");
+    expect(prompt).toContain("pull request into main");
+    expect(prompt).toContain('"environments"');
+  });
+
+  test("reads the answer; anything else is no answer", () => {
+    expect(parseEnvironments('{"environments": ["prod", "dev"]}')).toEqual(["prod", "dev"]);
+    expect(parseEnvironments("no idea")).toBeUndefined();
   });
 });

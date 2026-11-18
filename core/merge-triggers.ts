@@ -1,12 +1,8 @@
 import { parse } from "yaml";
 import type { WorkflowRole } from "./workflow-role";
 
-/**
- * Whether a merge into the base branch can start a workflow, read from its `on:` section: a push to that branch, or
- * another workflow finishing (a deploy chained after a build). Undefined when the file can't be read, so the caller
- * falls back to waiting for runs to show up.
- */
-export function startsOnMerge(file: string, base: string): boolean | undefined {
+/** A workflow's `on:` section as event → settings; undefined when the file can't be read or has none. */
+function eventsOf(file: string): Record<string, unknown> | undefined {
   let doc: unknown;
   try {
     doc = parse(file);
@@ -17,20 +13,44 @@ export function startsOnMerge(file: string, base: string): boolean | undefined {
   const record = doc as Record<string, unknown> | null;
   const trigger = record?.on ?? record?.true;
   if (trigger === undefined || trigger === null) return undefined;
-  const events: Record<string, unknown> =
-    typeof trigger === "string" ? { [trigger]: null }
+  return typeof trigger === "string" ? { [trigger]: null }
     : Array.isArray(trigger) ? Object.fromEntries(trigger.map((event) => [String(event), null]))
     : (trigger as Record<string, unknown>);
+}
+
+const list = (value: unknown) => (Array.isArray(value) ? value.map(String) : typeof value === "string" ? [value] : undefined);
+
+/** Whether an event's branch filters let the base branch through; without filters, every branch does. */
+function forBranch(settings: unknown, base: string): boolean {
+  const filters = (settings ?? {}) as { branches?: unknown; "branches-ignore"?: unknown };
+  const branches = list(filters.branches);
+  const ignored = list(filters["branches-ignore"]);
+  if (branches) return branches.some((pattern) => matches(pattern, base));
+  if (ignored) return !ignored.some((pattern) => matches(pattern, base));
+  return true;
+}
+
+/**
+ * Whether a merge into the base branch can start a workflow, read from its `on:` section: a push to that branch, or
+ * another workflow finishing (a deploy chained after a build). Undefined when the file can't be read, so the caller
+ * falls back to waiting for runs to show up.
+ */
+export function startsOnMerge(file: string, base: string): boolean | undefined {
+  const events = eventsOf(file);
+  if (!events) return undefined;
   if ("workflow_run" in events) return true;
   if (!("push" in events)) return false;
   const push = (events.push ?? {}) as { branches?: unknown; "branches-ignore"?: unknown; tags?: unknown };
-  const list = (value: unknown) => (Array.isArray(value) ? value.map(String) : typeof value === "string" ? [value] : undefined);
-  const branches = list(push.branches);
-  const ignored = list(push["branches-ignore"]);
-  if (branches) return branches.some((pattern) => matches(pattern, base));
-  if (ignored) return !ignored.some((pattern) => matches(pattern, base));
   // Only tags given: pushes to branches don't start it.
-  return push.tags === undefined;
+  if (!list(push.branches) && !list(push["branches-ignore"]) && push.tags !== undefined) return false;
+  return forBranch(push, base);
+}
+
+/** Whether a pull request into the base branch starts a workflow (`pull_request` or `pull_request_target`). */
+export function startsOnPullRequest(file: string, base: string): boolean | undefined {
+  const events = eventsOf(file);
+  if (!events) return undefined;
+  return ["pull_request", "pull_request_target"].some((event) => event in events && forBranch(events[event], base));
 }
 
 // GitHub's branch filters: `*` matches within a path segment, `**` across them. Negated patterns (`!x`) are left out.

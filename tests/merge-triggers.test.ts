@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deployPossible, startsOnMerge, workflowEnvironments } from "../core/merge-triggers";
+import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironments } from "../core/merge-triggers";
 
 const on = (trigger: string) => `name: W\non:${trigger}\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps: []\n`;
 
@@ -68,5 +68,18 @@ describe("workflowEnvironments: the environments a workflow's jobs deploy to", (
   test("expressions can't be known ahead, and a file that can't be read has none", () => {
     expect(workflowEnvironments("jobs:\n  d: { environment: '${{ inputs.env }}', steps: [] }\n")).toEqual([]);
     expect(workflowEnvironments("jobs: [")).toEqual([]);
+  });
+});
+
+describe("startsOnPullRequest: does a pull request into the base branch start this workflow?", () => {
+  const on = (trigger: string) => `on:${trigger}\njobs: {}\n`;
+  test("pull_request or pull_request_target, all branches or a filter matching the base", () => {
+    expect(startsOnPullRequest(on(" pull_request"), "main")).toBe(true);
+    expect(startsOnPullRequest(on(" [push, pull_request_target]"), "main")).toBe(true);
+    expect(startsOnPullRequest(on("\n  pull_request:\n    branches: [main]"), "main")).toBe(true);
+    expect(startsOnPullRequest(on("\n  pull_request:\n    branches: [develop]"), "main")).toBe(false);
+    expect(startsOnPullRequest(on("\n  pull_request:\n    branches-ignore: [main]"), "main")).toBe(false);
+    expect(startsOnPullRequest(on(" push"), "main")).toBe(false);
+    expect(startsOnPullRequest("on: [pull\n", "main")).toBeUndefined();
   });
 });

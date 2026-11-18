@@ -118,6 +118,8 @@ export interface PrFacts {
   /** Merge pipelines on the base branch still deploying something this PR also changes. */
   readonly deployingOnBase: readonly string[];
   /** Before the merge: the deploy's jobs from its last successful run on the base branch, and the environments that need approval. */
+  /** Before any of its runs waits: the environments the PR's own workflows deploy to that need approval. */
+  readonly expectedChecksApproval?: readonly string[];
   readonly expectedDeploy?: { readonly jobs: readonly string[]; readonly approval: readonly string[] };
 }
 

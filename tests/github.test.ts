@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, expectedChecksApproval, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -337,5 +337,47 @@ describe("expectedDeploy: what a merge into the base branch will deploy", () => 
 
   test("nothing when no workflow a merge starts deploys", async () => {
     expect(await expectedDeploy(gh(), "o/r", "main", "/w", async () => "other")).toBeUndefined();
+  });
+});
+
+describe("expectedChecksApproval: environments the PR's own workflows deploy to that need approval", () => {
+  const gh: Gh = async (args) => {
+    const path = args[1] ?? "";
+    if (path === "repos/o/r/actions/workflows") {
+      return JSON.stringify({ workflows: [{ id: 1, path: ".github/workflows/plan.yml", state: "active" }, { id: 2, path: ".github/workflows/apply.yml", state: "active" }, { id: 3, path: "dynamic/x", state: "active" }] });
+    }
+    if (path === "repos/o/r/contents/.github/workflows/plan.yml?ref=main") return "on: pull_request\njobs:\n  plan-dev: { environment: dev, steps: [] }\n  plan-prod: { environment: prod-plan, steps: [] }\n";
+    if (path === "repos/o/r/contents/.github/workflows/apply.yml?ref=main") return "on: push\njobs:\n  apply: { environment: prod, steps: [] }\n";
+    if (path === "repos/o/r/environments/dev") return JSON.stringify({ protection_rules: [] });
+    if (path === "repos/o/r/environments/prod-plan") return JSON.stringify({ protection_rules: [{ type: "required_reviewers" }] });
+    throw new Error(`unexpected gh ${args.join(" ")}`);
+  };
+
+  test("only the workflows a pull request starts, only protected environments", async () => {
+    expect(await expectedChecksApproval(gh, "o/r", "main", "/w")).toEqual(["prod-plan"]);
+  });
+});
+
+describe("expectedChecksApproval: environments set by an expression are left to the model", () => {
+  const gh: Gh = async (args) => {
+    const path = args[1] ?? "";
+    if (path === "repos/o/r/actions/workflows") return JSON.stringify({ workflows: [{ id: 1, path: ".github/workflows/tf.yml", state: "active" }] });
+    if (path === "repos/o/r/contents/.github/workflows/tf.yml?ref=main") {
+      return "on: pull_request\njobs:\n  prod:\n    uses: o/shared/.github/workflows/plan.yml@main\n    with:\n      environment: ${{ github.ref != 'refs/heads/main' && 'prod' || null }}\n";
+    }
+    if (path === "repos/o/r/environments") return JSON.stringify({ environments: [{ name: "prod" }, { name: "dev" }] });
+    if (path === "repos/o/r/environments/prod") return JSON.stringify({ protection_rules: [{ type: "required_reviewers" }] });
+    throw new Error(`unexpected gh ${args.join(" ")}`);
+  };
+
+  test("the model's names, kept only when the repo has such an environment, then checked for approval", async () => {
+    const asked: string[] = [];
+    const guess = async (file: string) => (asked.push(file), ["prod", "made-up"]);
+    expect(await expectedChecksApproval(gh, "o/r", "main", "/w", guess)).toEqual(["prod"]);
+    expect(asked).toHaveLength(1);
+  });
+
+  test("without a model, those environments stay unknown", async () => {
+    expect(await expectedChecksApproval(gh, "o/r", "main", "/w")).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 import { fileDebugLog, noDebugLog, tolerate, type DebugLog } from "./core/debug-log";
 import { dispatchedRun, findWorkflowDispatches, runFromOutput, type Dispatch } from "./core/dispatch";
 import { parseRunReference, runWatchID } from "./core/run-facts";
@@ -15,8 +16,8 @@ import { parseReplacement, replacementPrompt, type Candidate } from "./core/repl
 import { Plugin } from "@opencode/plugin";
 import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPrompt, parseBotAdvice, parseDiagnosis, refreshHistory } from "./core/advice";
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
-import { matchWorkflow, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
-import { configureGh, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh } from "./core/github";
+import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
+import { configureGh, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh } from "./core/github";
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { claimOrphan, claimPolling, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
@@ -139,6 +140,28 @@ export default Plugin.define({
       return resolved.ok ? cachedRoleLookup(repo, cwd, resolved.model) : undefined;
     };
 
+    // The environments a workflow file uses for a pull request, when it sets them by an expression: the guarded
+    // model reads the file once, and the answer is stored per file content.
+    const environmentGuess = (cwd: string, model: ModelRef): EnvironmentGuess => async (file, base) => {
+      const key = `workflow-envs/${createHash("sha256").update(`${base}\n${file}`).digest("hex").slice(0, 16)}`;
+      const stored = (await ctx.storage.get(key)) as string[] | undefined;
+      if (stored) return stored;
+      const answer = await ctx.generate.text({ prompt: environmentsPrompt(file, base), model: { providerID: model.providerID, id: model.id } });
+      const names = parseEnvironments(answer.text, badAnswer("workflow environments", model, answer.text, { cwd }));
+      if (names) await ctx.storage.set(key, names as never);
+      return names;
+    };
+    const guessLookup = async (cwd: string, sessionID: string, pinned: Watch["pinned"]): Promise<EnvironmentGuess | undefined> => {
+      const resolved = resolveJudgeModel({
+        pinned,
+        session: await sessionView(sessionID),
+        pluginDirectory: directory,
+        catalog: await tolerate(debug, "model catalog", ports.catalog(), []),
+        preferences: settings.preferences,
+      });
+      return resolved.ok ? environmentGuess(cwd, resolved.model) : undefined;
+    };
+
     // Set with watch_pr's deployWorkflow="none": the repo deploys nothing, so a merge ends the watch.
     const marksNoDeploy = async (repo: string) => Boolean(await ctx.storage.get(`no-deploy/${repo}`));
 
@@ -159,7 +182,7 @@ export default Plugin.define({
         ? runSnapshot(runGh, watch.repo, watch.run, watch.pinned.directory)
         : withAttachedRuns(
             watch,
-            await prSnapshot(runGh, watch.repo, watch.pr, watch.pinned.directory, Date.now(), await roleLookup(watch.repo, watch.pinned.directory, watch.sessionID, watch.pinned), await marksNoDeploy(watch.repo)),
+            await prSnapshot(runGh, watch.repo, watch.pr, watch.pinned.directory, Date.now(), await roleLookup(watch.repo, watch.pinned.directory, watch.sessionID, watch.pinned), await marksNoDeploy(watch.repo), await guessLookup(watch.pinned.directory, watch.sessionID, watch.pinned)),
           );
     // Runs on the PR's branch followed in its watch. Only their state goes into the text: every finished job would
     // otherwise be a change for the model to judge. A run that can't be read is left out this time and stays attached.
@@ -739,7 +762,7 @@ export default Plugin.define({
       const replaced = Boolean(existing);
       const snapshot = runRef
         ? await runSnapshot(runGh, repo, runRef.run, pin.pinned.directory, now)
-        : await prSnapshot(runGh, repo, ref.pr, pin.pinned.directory, now, cachedRoleLookup(repo, pin.pinned.directory, judge.model), await marksNoDeploy(repo));
+        : await prSnapshot(runGh, repo, ref.pr, pin.pinned.directory, now, cachedRoleLookup(repo, pin.pinned.directory, judge.model), await marksNoDeploy(repo), environmentGuess(pin.pinned.directory, judge.model));
       if (!snapshot.facts) throw new Error(snapshot.text);
       const summary = summaryLine(snapshot.facts, now);
       const decision = startDecision(snapshot.facts, now, trigger ? { trigger } : {});
