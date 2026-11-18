@@ -84,3 +84,19 @@ export function findBotRefreshes(command: string): DetectedMerge[] {
     .filter((inv) => !usesVariable(inv) && inv.tokens.some((token, i) => (token === "--body" || token === "-b") && /^@[\w-]+(\[bot\])? \w+/.test(inv.tokens[i + 1] ?? "")))
     .map(({ repo, target }) => ({ repo, pr: target }));
 }
+
+/**
+ * The folder a command ran in: where the shell started, moved by any `cd` the command opens with (`cd x; …` or
+ * `cd x && …`). A merge's gh calls without --repo must run there to find the right repository.
+ */
+export function commandDirectory(command: string, start: string, home: string): string {
+  let dir = start;
+  let rest = command.trimStart();
+  for (;;) {
+    const match = rest.match(/^cd\s+("([^"]+)"|'([^']+)'|([^\s;&|]+))\s*(;|&&)\s*/);
+    if (!match) return dir;
+    const target = match[2] ?? match[3] ?? match[4]!;
+    dir = target.startsWith("~") ? home + target.slice(1) : target.startsWith("/") ? target : `${dir.replace(/\/$/, "")}/${target}`;
+    rest = rest.slice(match[0].length);
+  }
+}

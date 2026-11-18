@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { alreadyUpToDate, findBotRefreshes, findBranchUpdates, findPrMerges, findRunReruns } from "../core/merge-detection";
+import { alreadyUpToDate, commandDirectory, findBotRefreshes, findBranchUpdates, findPrMerges, findRunReruns } from "../core/merge-detection";
 
 describe("findPrMerges", () => {
   test("finds a merge with a PR number and --repo", () => {
@@ -163,5 +163,19 @@ describe("findBotRefreshes (plan 27)", () => {
   test("not an ordinary comment", () => {
     expect(findBotRefreshes('gh pr comment 12 --body "Looks good"')).toEqual([]);
     expect(findBotRefreshes('echo "gh pr comment 12 --body @dependabot rebase"')).toEqual([]);
+  });
+});
+
+describe("commandDirectory: the folder a command ran in, for its gh calls without --repo", () => {
+  test("a leading cd, absolute, under ~, or relative to where the shell started", () => {
+    expect(commandDirectory("cd ~/src/app; gh pr merge 1", "/base", "/home/me")).toBe("/home/me/src/app");
+    expect(commandDirectory("cd /work/app && gh pr merge 1", "/base", "/home/me")).toBe("/work/app");
+    expect(commandDirectory("cd app && cd sub; gh pr merge 1", "/base", "/home/me")).toBe("/base/app/sub");
+    expect(commandDirectory('cd "/my work/app"; gh pr merge 1', "/base", "/home/me")).toBe("/my work/app");
+  });
+
+  test("no cd first: where the shell started", () => {
+    expect(commandDirectory("gh pr merge 1", "/base", "/home/me")).toBe("/base");
+    expect(commandDirectory("echo cd /x; gh pr merge 1", "/base", "/home/me")).toBe("/base");
   });
 });

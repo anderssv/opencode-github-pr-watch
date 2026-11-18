@@ -17,7 +17,7 @@ import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPromp
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
 import { matchWorkflow, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
 import { configureGh, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh } from "./core/github";
-import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes } from "./core/merge-detection";
+import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { claimOrphan, claimPolling, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
 import { execFile } from "node:child_process";
@@ -890,7 +890,8 @@ export default Plugin.define({
       const dispatchedAt = startedAt ?? finishedAt;
       const command = { ...(startedAt === undefined ? {} : { startedAt }), finishedAt };
 
-      const cwd = input.workdir ?? (await sessionView(event.sessionID)).directory;
+      // A `cd` the command opens with moves where its gh calls ran, which decides the repository without --repo.
+      const cwd = commandDirectory(input.command ?? "", input.workdir ?? (await sessionView(event.sessionID)).directory, homedir());
       for (const merge of merges) {
         try {
           const reference = merge.pr
