@@ -117,6 +117,8 @@ export interface PrFacts {
   readonly undeterminedWorkflows?: readonly string[];
   /** Merge pipelines on the base branch still deploying something this PR also changes. */
   readonly deployingOnBase: readonly string[];
+  /** Before the merge: the deploy's jobs from its last successful run on the base branch, and the environments that need approval. */
+  readonly expectedDeploy?: { readonly jobs: readonly string[]; readonly approval: readonly string[] };
 }
 
 // After a merge, a deploy pipeline normally starts within a few minutes. If none has started by then, the repo

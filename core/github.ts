@@ -3,7 +3,7 @@ import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-
 import { logTail } from "./log-excerpt";
 import { approvalLine, upToDateLine } from "./pr-status";
 import type { WorkflowRole, WorkflowSummary } from "./workflow-role";
-import { deployPossible, startsOnMerge } from "./merge-triggers";
+import { deployPossible, startsOnMerge, workflowEnvironments } from "./merge-triggers";
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
@@ -181,6 +181,10 @@ export async function prSnapshot(
   if (view.state === "OPEN") {
     const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
+    if (roleOf) {
+      const expected = await tolerate(debug, "expected deploy", cachedExpectedDeploy(gh, repo, view.baseRefName, cwd, roleOf, now), undefined, { repo, pr });
+      if (expected) facts = { ...facts, expectedDeploy: expected };
+    }
   }
   if (facts.deploy === "RUNNING") {
     const queued = runs.find((r) => r.event === "push" && r.status !== "completed" && r.status !== "in_progress" && r.jobs.length === 0) as (RunWithJobs & { workflowDatabaseId?: number }) | undefined;
@@ -237,6 +241,59 @@ export async function prSnapshot(
     ...runLines,
   ];
   return { text: lines.join("\n"), facts };
+}
+
+export interface ExpectedDeploy {
+  readonly jobs: readonly string[];
+  readonly approval: readonly string[];
+}
+
+/**
+ * What a merge into the base branch will deploy: the jobs of the deploy workflows' last successful run there (skipped
+ * ones left out), and the environments they deploy to that need a reviewer's approval. Undefined when nothing deploys.
+ * Which workflows deploy is the model's judgement (roleOf); `complete` is false while a role is still unknown.
+ */
+async function readExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup): Promise<{ expected?: ExpectedDeploy; complete: boolean }> {
+  const ids = await mergeWorkflows(gh, repo, base, cwd);
+  if (!ids) return { complete: false };
+  const roles = await Promise.all(ids.map((id) => tolerate(debug, "workflow role", roleOf(id), undefined, { repo, workflow: id })));
+  const complete = !roles.includes(undefined);
+  const deploying = ids.filter((_, i) => roles[i] === "deploy");
+  if (deploying.length === 0) return { complete };
+  const { workflows } = JSON.parse(await gh(["api", `repos/${repo}/actions/workflows`], cwd)) as { workflows: { id: number; path: string }[] };
+  const jobs: string[] = [];
+  const environments: string[] = [];
+  for (const id of deploying) {
+    const path = workflows.find((w) => w.id === id)?.path;
+    if (path) environments.push(...workflowEnvironments(await gh(["api", `repos/${repo}/contents/${path}?ref=${encodeURIComponent(base)}`, "-H", "Accept: application/vnd.github.raw"], cwd)));
+    const [last] = JSON.parse(
+      await gh(["run", "list", "--repo", repo, "--workflow", String(id), "--branch", base, "--event", "push", "--status", "success", "--limit", "1", "--json", "databaseId"], cwd),
+    ) as { databaseId: number }[];
+    if (last) jobs.push(...(await jobsOf(gh, repo, last.databaseId, cwd)).filter((job) => job.conclusion !== "skipped").map((job) => job.name));
+  }
+  const approval: string[] = [];
+  for (const env of new Set(environments)) {
+    const rules = await tolerate(debug, "environment protection", gh(["api", `repos/${repo}/environments/${encodeURIComponent(env)}`], cwd), undefined, { repo, env });
+    const parsed = rules ? (JSON.parse(rules) as { protection_rules?: { type: string }[] }) : undefined;
+    if (parsed?.protection_rules?.some((rule) => rule.type === "required_reviewers")) approval.push(env);
+  }
+  return { expected: { jobs: [...new Set(jobs)], approval }, complete };
+}
+
+export async function expectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup): Promise<ExpectedDeploy | undefined> {
+  return (await readExpectedDeploy(gh, repo, base, cwd, roleOf)).expected;
+}
+
+// Read once per repo and base branch for six hours; a read with a role still unknown is not kept, so it's asked again.
+const EXPECTED_FOR_MS = 6 * 60 * 60_000;
+const expectations = new Map<string, { at: number; expected: ExpectedDeploy | undefined }>();
+async function cachedExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup, now: number): Promise<ExpectedDeploy | undefined> {
+  const key = `${repo}@${base}`;
+  const kept = expectations.get(key);
+  if (kept && now - kept.at < EXPECTED_FOR_MS) return kept.expected;
+  const read = await readExpectedDeploy(gh, repo, base, cwd, roleOf);
+  if (read.complete) expectations.set(key, { at: now, expected: read.expected });
+  return read.expected;
 }
 
 async function jobsOf(gh: Gh, repo: string, runID: number, cwd: string): Promise<JobView[]> {

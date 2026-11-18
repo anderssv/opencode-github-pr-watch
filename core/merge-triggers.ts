@@ -51,3 +51,20 @@ export function deployPossible(roles: readonly (WorkflowRole | undefined)[]): bo
   if (roles.includes("deploy")) return true;
   return roles.includes(undefined) ? undefined : false;
 }
+
+/** The environments a workflow's jobs deploy to, in order, each once. Names set by an expression can't be known ahead. */
+export function workflowEnvironments(file: string): string[] {
+  let doc: unknown;
+  try {
+    doc = parse(file);
+  } catch {
+    return [];
+  }
+  const jobs = (doc as { jobs?: Record<string, { environment?: unknown }> } | null)?.jobs;
+  if (!jobs || typeof jobs !== "object" || Array.isArray(jobs)) return [];
+  const names = Object.values(jobs).map((job) => {
+    const env = job?.environment;
+    return typeof env === "string" ? env : typeof env === "object" && env !== null ? (env as { name?: unknown }).name : undefined;
+  });
+  return [...new Set(names.filter((n): n is string => typeof n === "string" && !n.includes("${{")))];
+}

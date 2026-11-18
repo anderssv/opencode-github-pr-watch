@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -308,5 +308,34 @@ describe("mergeWorkflows: the workflows a merge into the base branch can start",
     expect(
       await mergeWorkflows(gh({ "repos/acme/docs/contents/.github/workflows/add-to-project.yml?ref=main": issues, "repos/acme/docs/contents/.github/workflows/deploy.yml?ref=main": "on: [push\n" }), "acme/docs", "main", "/w"),
     ).toBeUndefined();
+  });
+});
+
+describe("expectedDeploy: what a merge into the base branch will deploy", () => {
+  const gh = (): Gh => async (args) => {
+    const path = args[1] ?? "";
+    if (args[0] === "api" && path === "repos/o/r/actions/workflows") {
+      return JSON.stringify({ workflows: [{ id: 1, path: ".github/workflows/lint.yml", state: "active" }, { id: 2, path: ".github/workflows/deploy.yml", state: "active" }] });
+    }
+    if (path === "repos/o/r/contents/.github/workflows/lint.yml?ref=main") return "on: push\njobs: { lint: { steps: [] } }\n";
+    if (path === "repos/o/r/contents/.github/workflows/deploy.yml?ref=main") {
+      return "on: push\njobs:\n  build: { steps: [] }\n  dev: { environment: dev, steps: [] }\n  prod: { environment: prod, steps: [] }\n";
+    }
+    if (path === "repos/o/r/environments/dev") return JSON.stringify({ protection_rules: [] });
+    if (path === "repos/o/r/environments/prod") return JSON.stringify({ protection_rules: [{ type: "required_reviewers" }] });
+    if (args[0] === "run" && args[1] === "list") return JSON.stringify([{ databaseId: 77 }]);
+    if (args[0] === "run" && args[1] === "view") {
+      return JSON.stringify({ jobs: [{ name: "Build", conclusion: "success" }, { name: "Deploy dev", conclusion: "success" }, { name: "Notify", conclusion: "skipped" }, { name: "Deploy prod", conclusion: "success" }] });
+    }
+    throw new Error(`unexpected gh ${args.join(" ")}`);
+  };
+  const roles = async (id: number) => (id === 2 ? ("deploy" as const) : ("other" as const));
+
+  test("the deploy workflows' jobs from their last successful run, and the environments that need approval", async () => {
+    expect(await expectedDeploy(gh(), "o/r", "main", "/w", roles)).toEqual({ jobs: ["Build", "Deploy dev", "Deploy prod"], approval: ["prod"] });
+  });
+
+  test("nothing when no workflow a merge starts deploys", async () => {
+    expect(await expectedDeploy(gh(), "o/r", "main", "/w", async () => "other")).toBeUndefined();
   });
 });

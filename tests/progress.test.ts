@@ -49,3 +49,15 @@ describe("trackText: the track in a message", () => {
     expect(trackText(progressTrack(aFacts({ review: "REVIEW_REQUIRED" }), NOW))).toBe("PR ✓ · Checks ✓ · Review ⏸ waiting for code review · Merge · Deploy");
   });
 });
+
+describe("the expected deploy, before the merge", () => {
+  test("its jobs and the environments that need approval, on the upcoming Deploy stage", () => {
+    const facts = aFacts({ review: "REVIEW_REQUIRED", expectedDeploy: { jobs: ["Build", "Dev", "Prod"], approval: ["prod"] } });
+    expect(progressTrack(facts, NOW).at(-1)).toEqual({ name: "Deploy", state: "upcoming", detail: "3 jobs: Build, Dev, Prod · run approval for prod" });
+  });
+
+  test("after the merge, what is happening replaces what was expected", () => {
+    const facts = merged({ deployProgress: { done: 1, total: 3, current: "Dev" }, expectedDeploy: { jobs: ["Build", "Dev", "Prod"], approval: [] } });
+    expect(progressTrack(facts, NOW).at(-1)).toEqual({ name: "Deploy", state: "running", detail: "1/3 · Dev" });
+  });
+});

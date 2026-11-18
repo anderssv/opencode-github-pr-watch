@@ -16,6 +16,11 @@ export interface Stage {
 const stage = (name: Stage["name"], state: StageState, detail?: string): Stage => ({ name, state, ...(detail ? { detail } : {}) });
 const progress = (p: PrFacts["checksProgress"]) => (p ? `${p.done}/${p.total}${p.current ? ` · ${p.current}` : ""}` : undefined);
 
+const expected = (e: PrFacts["expectedDeploy"]) =>
+  e && e.jobs.length > 0
+    ? [`${e.jobs.length} jobs: ${e.jobs.join(", ")}`, ...(e.approval.length > 0 ? [`run approval for ${e.approval.join(", ")}`] : [])].join(" · ")
+    : undefined;
+
 function deployStage(facts: PrFacts, name: "Deploy" | "Run"): Stage | undefined {
   switch (facts.deploy) {
     case "RUNNING": return stage(name, "running", progress(facts.deployProgress));
@@ -24,7 +29,9 @@ function deployStage(facts: PrFacts, name: "Deploy" | "Run"): Stage | undefined 
     case "FAILED": return stage(name, "failed");
     case "SUCCEEDED": return stage(name, "done");
     case "NOTHING": return undefined;
-    default: return facts.deployPossible === false ? undefined : stage(name, facts.state === "MERGED" ? "running" : "upcoming", facts.state === "MERGED" ? "starting" : undefined);
+    default:
+      if (facts.deployPossible === false) return undefined;
+      return facts.state === "MERGED" ? stage(name, "running", "starting") : stage(name, "upcoming", expected(facts.expectedDeploy));
   }
 }
 
