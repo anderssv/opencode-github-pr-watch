@@ -5,6 +5,7 @@ const MINUTE = 60_000;
 const ACTIVE_POLL_MS = MINUTE;
 const WAITING_POLL_MS = 5 * MINUTE;
 const IDLE_POLL_MS = 30 * MINUTE;
+const PAUSED_POLL_MS = 30_000;
 const IDLE_AFTER_MS = 24 * 60 * MINUTE;
 // Right after `gh run rerun` or `gh pr update-branch`, GitHub can still report the state the command is replacing
 // for a little while. A watch started by such a command ignores those stale states for this long.
@@ -234,6 +235,9 @@ export function pollDelay(facts: PrFacts, now: number, awaitingNewRun = false, l
   if (awaitingNewRun) return ACTIVE_POLL_MS;
   // Watches now live until the PR is done, so one that has been quiet for a day is checked less often.
   if (lastChangeAt !== undefined && now - lastChangeAt > IDLE_AFTER_MS) return IDLE_POLL_MS;
+  // Paused checks go on as soon as someone approves, often right after being asked, so they're looked at twice a minute.
+  const paused = nextStep(facts, now);
+  if (paused === "CHECKS_WAITING" || paused === "CHECKS_BLOCKED") return PAUSED_POLL_MS;
   const step = nextStep(facts, now);
   // GitHub merges within a minute or two once an auto-merge PR is ready, so that is checked like a running pipeline.
   if (step === "READY" && facts.autoMerge) return ACTIVE_POLL_MS;

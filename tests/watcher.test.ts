@@ -188,7 +188,7 @@ describe("tick: waiting", () => {
     const second = await tick(first.watch, ports, settings());
 
     expect(second.stop).toBe(false);
-    expect(second.delayMs).toBe(60_000);
+    expect(second.delayMs).toBe(30_000);
     expect(ports.notifications).toHaveLength(1);
     expect(ports.notifications[0]!.text).toContain("run approval needed (checks): CORE terraform / Plan");
   });
