@@ -23,7 +23,7 @@ describe("tick: fixed events, no model", () => {
     );
 
     expect(ports.judged).toEqual([]);
-    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("approved") }]);
+    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("approved"), wake: false }]);
     expect(ports.notifications[0]!.text).toContain("summary: APPROVED");
     expect(result.stop).toBe(false);
   });
@@ -120,7 +120,7 @@ describe("tick: the commit a branch update creates", () => {
     const first = await tick(watchStarted({ lastSnapshot: "before", lastFacts: before, expectedCommitSince: NOW - 60_000 }), ports, settings());
     await tick(first.watch, ports, settings());
 
-    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("new commit ccccccc") }]);
+    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("new commit ccccccc"), wake: false }]);
   });
 
   test("a new commit long after the update is news again", async () => {
@@ -128,7 +128,7 @@ describe("tick: the commit a branch update creates", () => {
 
     await tick(watchStarted({ lastSnapshot: "before", lastFacts: before, expectedCommitSince: NOW - 11 * 60_000 }), ports, settings());
 
-    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("new commit bbbbbbb") }]);
+    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("new commit bbbbbbb"), wake: false }]);
   });
 
   test("a branch update on a watched PR expects its commit", () => {
@@ -671,5 +671,27 @@ describe("notify: every step change by rule (major), progress too (all) — acme
     await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), notify: "all" }), ports, settings());
     expect(ports.notifications[0]!.text).toContain("checks running 4/5 · Build");
     expect(ports.judged).toEqual([]);
+  });
+});
+
+describe("what wakes the agent: only what it can act on", () => {
+  test("something to fix wakes it", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("failing", { checks: "FAIL", failingChecks: ["Build"] })] });
+    await tick(watchStarted({ lastSnapshot: "running", lastFacts: aFacts({ checks: "PENDING" }) }), ports, settings());
+    expect(ports.notifications.map((n) => n.wake)).toEqual([true]);
+  });
+
+  test("a change of step, or a person's turn, only informs", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("waiting", { review: "REVIEW_REQUIRED" }), aSnapshot("ready", {})] });
+    const first = await tick(watchStarted({ lastSnapshot: "running", lastFacts: aFacts({ checks: "PENDING", review: "REVIEW_REQUIRED" }) }), ports, settings());
+    await tick(first.watch, ports, settings());
+    expect(ports.notifications.map((n) => n.wake)).toEqual([false, false]);
+  });
+
+  test("the end wakes it", async () => {
+    const before = aFacts({ state: "MERGED", mergedAt: NOW - 600_000, deploy: "RUNNING" });
+    const ports = fakePorts({ snapshots: [aSnapshot("deployed", { state: "MERGED", mergedAt: NOW - 600_000, deploy: "SUCCEEDED" })] });
+    await tick(watchStarted({ lastSnapshot: "deploying", lastFacts: before }), ports, settings());
+    expect(ports.notifications.map((n) => n.wake)).toEqual([true]);
   });
 });

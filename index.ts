@@ -273,12 +273,12 @@ export default Plugin.define({
         await ctx.storage.set(key, { seen, at: Date.now() } as never);
         return before;
       },
-      notify: async (sessionID, text) => {
+      notify: async (sessionID, text, wake = false) => {
         const key = messageKey(sessionID, text);
         const now = Date.now();
         if (!shouldSend((await ctx.storage.get(key)) as number | undefined, now)) return;
         await ctx.storage.set(key, now);
-        collect(sessionID, text);
+        collect(sessionID, text, wake);
       },
       current: async (watch) => {
         const stored = (await ctx.storage.get(KEY_PREFIX + watch.id)) as unknown as Watch | undefined;
@@ -290,11 +290,13 @@ export default Plugin.define({
     };
 
     // Messages arriving close together (typically a batch of PRs changing at once) are sent as one digest.
-    const pending = new Map<string, { messages: string[]; timer: ReturnType<typeof setTimeout> }>();
+    // A digest wakes the agent when any message in it asks to.
+    const pending = new Map<string, { messages: string[]; wake: boolean; timer: ReturnType<typeof setTimeout> }>();
 
-    const collect = (sessionID: string, text: string) => {
-      const entry = pending.get(sessionID) ?? { messages: [], timer: setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS) };
+    const collect = (sessionID: string, text: string, wake: boolean) => {
+      const entry = pending.get(sessionID) ?? { messages: [], wake: false, timer: setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS) };
       entry.messages.push(text);
+      entry.wake ||= wake;
       pending.set(sessionID, entry);
     };
 
@@ -332,8 +334,8 @@ export default Plugin.define({
         if (options.desktopNotifications ?? true) {
           showDesktopNotification(entry.messages.length === 1 ? entry.messages[0]! : `PR watch: ${entry.messages.length} updates. ${progress[0] ?? entry.messages[0]}`);
         }
-        await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${digest}`, delivery: "queue", resume: true });
-        debug("delivered", { sessionID, messages: entry.messages.length });
+        await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${digest}`, delivery: "queue", resume: entry.wake });
+        debug("delivered", { sessionID, messages: entry.messages.length, wake: entry.wake });
         await removeFinishedBatches();
       } catch (err) {
         console.error("[pr-watch] could not deliver messages:", err);

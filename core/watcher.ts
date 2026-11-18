@@ -6,6 +6,7 @@ import { PROGRESSING, type PhaseLimit } from "./timing";
 import { failureSignature, needsBotAdvice, suggestionFor, type Diagnosis } from "./advice";
 import { resolveJudgeModel, type CatalogModel, type ModelRef, type PinnedProvider, type SessionView } from "./model-guard";
 import { nextStep, summaryLine, type PrFacts } from "./pr-facts";
+import { whoActs } from "./actor";
 import { problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
 import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
@@ -71,7 +72,8 @@ export interface WatchPorts {
   session(sessionID: string): Promise<SessionView>;
   catalog(): Promise<CatalogModel[]>;
   judge(model: ModelRef, directory: string, prompt: string): Promise<string>;
-  notify(sessionID: string, text: string): Promise<void>;
+  /** wake: the agent is woken to act on it; otherwise it only informs. */
+  notify(sessionID: string, text: string, wake?: boolean): Promise<void>;
   /** Reads the failure's error lines and asks the (guarded) model for a diagnosis. */
   diagnose?(model: ModelRef, watch: Watch, facts: PrFacts): Promise<Diagnosis | undefined>;
   /** Records one more occurrence of a failure and returns how often it was seen before, across watches. */
@@ -158,10 +160,10 @@ export async function tick(watch: Watch, ports: WatchPorts, settings: WatchSetti
   try {
     // Every message is checked against a fresh read first: a replaced watch never speaks, and a message the live
     // state no longer supports (for example "ready for merge" after the PR merged) is dropped for the next check.
-    const say = async (message: string) => {
+    const say = async (message: string, wake = false) => {
       await gate();
-      log("notify", { text: message });
-      await tolerate(debugOf(ports), "notify", ports.notify(watch.sessionID, `${watch.id}: ${message}`), undefined, { id: watch.id });
+      log("notify", { text: message, wake });
+      await tolerate(debugOf(ports), "notify", ports.notify(watch.sessionID, `${watch.id}: ${message}`, wake), undefined, { id: watch.id });
     };
     const result = await tickInner(watch, ports, settings, (f) => (usedFacts = f), say);
     log("result", { stop: result.stop, delayMs: result.delayMs, ...(result.follow !== undefined ? { follow: result.follow } : {}) });
@@ -174,7 +176,7 @@ export async function tick(watch: Watch, ports: WatchPorts, settings: WatchSetti
   }
 }
 
-async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSettings, use: (f: PrFacts) => void, say: (message: string) => Promise<void>): Promise<TickResult> {
+async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSettings, use: (f: PrFacts) => void, say: (message: string, wake?: boolean) => Promise<void>): Promise<TickResult> {
   let session: SessionView;
   try {
     session = await ports.session(watch.sessionID);
@@ -274,14 +276,14 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
         return { watch: extended, stop: false, delayMs: pollDelay(facts, now, next.awaiting !== undefined) };
       }
       const detail = [basis, stall].filter(Boolean).join("; ");
-      await say(`${what}watch stopped: ${end}${detail ? ` (${detail})` : ""}. ${summary}`);
+      await say(`${what}watch stopped: ${end}${detail ? ` (${detail})` : ""}. ${summary}`, true);
       return { watch: next, stop: true, delayMs: 0 };
     }
     if (facts.state === "CLOSED" && facts.authorIsBot) {
       const model = await guardedModel(watch, ports, settings, session);
       const replacement = model ? await tolerate(debugOf(ports), "replacement PR", ports.replacementFor?.(model, watch), undefined, { id: watch.id }) : undefined;
       if (replacement !== undefined) {
-        await say(`${what}watch stopped: ${end}; superseded by #${replacement}, now watching it. ${summary}`);
+        await say(`${what}watch stopped: ${end}; superseded by #${replacement}, now watching it. ${summary}`, true);
         return { watch: next, stop: true, delayMs: 0, follow: replacement };
       }
     }
@@ -290,7 +292,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     // The model saw the job's steps: the service shipped and only a step after it failed.
     const stated = advice?.afterDeploy ? `deployed, but a step after the deploy failed: ${advice.cause}` : end;
     const suggestion = advice ? ` suggestion${advice.fromPr ? " (read from the bot's PR description, verify before acting)" : ""}: ${advice.text}.` : "";
-    await say(`${what}watch stopped: ${stated}${author}.${suggestion} ${summary}`);
+    await say(`${what}watch stopped: ${stated}${author}.${suggestion} ${summary}`, true);
     return { watch: next, stop: true, delayMs: 0 };
   }
   // Every change of where the PR is gets said by rule, so the end of something announced (checks restarted) is never
@@ -316,7 +318,8 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   // Becoming ready for merge is where a person has to act, so it's named even when other events already explain why.
   const nowReady = phase === "ready" && watch.lastFacts !== undefined && nextStep(watch.lastFacts, now) !== "READY";
   if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
-  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`);
+  // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
+  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, whoActs(facts, now) === "agent");
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
     const hours = Math.round((now - phaseSince) / 3_600_000);
     await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review (${hours} h). ${summary}`);
@@ -324,7 +327,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   }
 
   const stuck = stuckJobs(facts, now, settings.stuckMs);
-  if (stuck.length > 0 && !watch.stuckReported) await say(`looks stuck: ${stuck.join(", ")}. ${summary}`);
+  if (stuck.length > 0 && !watch.stuckReported) await say(`looks stuck: ${stuck.join(", ")}. ${summary}`, true);
   next = { ...next, stuckReported: stuck.length > 0 };
 
   // The update's own commit changes the snapshot in expected ways; don't ask the model to explain it.
@@ -344,7 +347,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
       preferences: settings.preferences,
     });
     if (!resolved.ok) {
-      await say(`watch stopped without calling a model, because ${resolved.reason}; ${RESUME_HINT}.`);
+      await say(`watch stopped without calling a model, because ${resolved.reason}; ${RESUME_HINT}.`, true);
       return { watch: next, stop: true, delayMs: 0 };
     }
     try {
@@ -353,7 +356,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
         ports.debug?.("model-answer-invalid", { id: watch.id, call: "judge", model: `${resolved.model.providerID}/${resolved.model.id}`, problem, answer: answer.slice(0, 1_000) }),
       );
       ports.debug?.("judge", { id: watch.id, model: `${resolved.model.providerID}/${resolved.model.id}`, verdict: verdict.kind, ...("reason" in verdict ? { reason: verdict.reason } : {}) });
-      if (verdict.kind !== "wait") await say(`${verdict.reason} ${summary}`);
+      if (verdict.kind !== "wait") await say(`${verdict.reason} ${summary}`, true);
       const { judgeFailingSince: _since, judgeFailureReported: _reported, ...rest } = next;
       next = rest;
     } catch (err) {
