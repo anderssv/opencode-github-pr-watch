@@ -16,6 +16,7 @@ const row = {
     state: { type: "string", enum: ["OPEN", "MERGED", "CLOSED"] },
     draft: { type: "boolean" },
     attention: { type: "boolean", enum: [true] },
+    forPr: { type: "string" },
     track: {
       type: "array",
       items: {

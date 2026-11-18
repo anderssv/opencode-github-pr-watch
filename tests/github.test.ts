@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, expectedChecksApproval, unresolvedThreads, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, unresolvedThreads, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -389,5 +389,16 @@ describe("unresolvedThreads: review threads on the PR nobody has resolved", () =
       return JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [{ isResolved: false }, { isResolved: true }, { isResolved: false }] } } } } });
     };
     expect(await unresolvedThreads(gh, "o/r", 7, "/w")).toBe(2);
+  });
+});
+
+describe("branchPr: the open PR for a branch", () => {
+  test("its number, or none", async () => {
+    const gh = (out: string): Gh => async (args) => {
+      expect(args).toContain("--head");
+      return out;
+    };
+    expect(await branchPr(gh('[{"number":82}]'), "o/r", "fix", "/w")).toBe(82);
+    expect(await branchPr(gh("[]"), "o/r", "main", "/w")).toBeUndefined();
   });
 });

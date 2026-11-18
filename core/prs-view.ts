@@ -60,6 +60,7 @@ export interface WatchRowLike {
   readonly author?: string;
   readonly state?: string;
   readonly draft?: boolean;
+  readonly forPr?: string;
 }
 
 /** The store's data (see store.ts): every session's watches, and the gh user's PRs as searched. */
@@ -117,7 +118,8 @@ export function prsView<R extends WatchRowLike>(data: PrsData<R>, choices: PrsCh
   const effectiveSort: MyPrSort = choices.grouping === "topic" && choices.sort === "name" ? "newest" : choices.sort;
   const organisation = choices.organisation || undefined;
 
-  const watched = new Map(rows.map((row) => [row.id, row]));
+  // A PR's own watch, else a watched run on its branch.
+  const watched = new Map([...rows.filter((row) => row.forPr).map((row) => [row.forPr!, row] as const), ...rows.map((row) => [row.id, row] as const)]);
   const watchOf = (pr: MyPr) => watched.get(`${pr.repo}#${pr.number}`);
   const shownStatus = (row: WatchRowLike | undefined) => choices.statuses.includes(statusOf(row));
   const group = (prs: readonly MyPr[]): PrGroup[] => {
@@ -130,11 +132,13 @@ export function prsView<R extends WatchRowLike>(data: PrsData<R>, choices: PrsCh
     return byRepo(found, organisation, choices.sort, choices.drafts).map((g) => ({ name: g.repo, kind: "repo" as const, prs: g.prs }));
   };
 
+  const listedIds = new Set([...open, ...(merged ?? [])].map(idOf));
   const searching = choices.search.trim() !== "" || choices.statuses.length < ALL_STATUSES.length;
   const openGroups = group(open);
   const mergedGroups = merged && group(merged);
   return {
-    runs: runWatches(rows).filter((row) => (!choices.sessionOnly || row.sessionID === sessionID) && shownStatus(row)),
+    // A run whose PR is listed shows on the PR's line instead.
+    runs: runWatches(rows).filter((row) => !(row.forPr && listedIds.has(row.forPr)) && (!choices.sessionOnly || row.sessionID === sessionID) && shownStatus(row)),
     open: openGroups,
     ...(openGroups.length === 0
       ? { openEmpty: searching ? "No open PRs match." : choices.sessionOnly ? "No PRs watched in this session." : "No open PRs." }

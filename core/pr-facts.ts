@@ -69,6 +69,8 @@ export interface Progress {
 export interface PrFacts {
   /** A workflow run followed on its own, without a PR: the deploy fields describe that run. */
   readonly standaloneRun?: true;
+  /** For a watched run: the open PR on the run's branch, whose line shows the run. */
+  readonly forPr?: number;
   /** Runs followed as part of this PR's watch (a dispatch on its branch), with their state. */
   readonly attachedRuns?: readonly AttachedRun[];
   /** Terraform plan summaries from the PR's finished runs, per job. */

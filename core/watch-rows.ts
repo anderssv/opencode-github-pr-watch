@@ -26,6 +26,8 @@ export interface WatchRow {
   readonly track?: readonly Stage[];
   /** Needs more than waiting: something to fix, or unresolved comments. A waiting line without it is just a pause. */
   readonly attention?: true;
+  /** A run watch on a PR's branch: that PR, "owner/repo#number". */
+  readonly forPr?: string;
 }
 
 // "3/4 · DEPLOY - Prod" while going, ", 4 steps done" once all of them are.
@@ -119,6 +121,7 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
         ...(watch.lastFacts && ["OPEN", "MERGED", "CLOSED"].includes(watch.lastFacts.state) ? { state: watch.lastFacts.state as "OPEN" | "MERGED" | "CLOSED" } : {}),
         ...(watch.lastFacts?.draft ? { draft: true } : {}),
         ...(watch.lastFacts ? { track: progressTrack(watch.lastFacts, now) } : {}),
+        ...(watch.lastFacts?.forPr !== undefined ? { forPr: `${watch.repo}#${watch.lastFacts.forPr}` } : {}),
         label: title ? `${watch.id} ${title}` : watch.id,
         url: watch.run ? `https://github.com/${watch.repo}/actions/runs/${watch.run}` : `https://github.com/${watch.repo}/pull/${watch.pr}`,
         detail: (approving

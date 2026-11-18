@@ -459,6 +459,12 @@ export async function viewRun(gh: Gh, repo: string, runID: number, cwd: string):
   );
 }
 
+/** The open PR whose branch this is, if any. */
+export async function branchPr(gh: Gh, repo: string, branch: string, cwd: string): Promise<number | undefined> {
+  const [found] = JSON.parse(await gh(["pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--limit", "1", "--json", "number"], cwd)) as { number: number }[];
+  return found?.number;
+}
+
 /** A workflow run without a PR, as text for the model and the listing plus its facts. */
 export async function runSnapshot(gh: Gh, repo: string, runID: number, cwd: string, now = Date.now()): Promise<Snapshot> {
   let run: StandaloneRun;
@@ -468,7 +474,9 @@ export async function runSnapshot(gh: Gh, repo: string, runID: number, cwd: stri
     debug("read-failed", { repo, run: runID, what: "run", error: err });
     return { text: `Could not read the run: ${err instanceof Error ? err.message : String(err)}` };
   }
-  const facts = runFacts(run);
+  // A run on a branch with an open PR is shown on that PR's line; the watch itself follows only the run.
+  const pr = run.headBranch ? await tolerate(debug, "the PR for the run's branch", branchPr(gh, repo, run.headBranch, cwd), undefined, { repo, run: runID }) : undefined;
+  const facts = { ...runFacts(run), ...(pr !== undefined ? { forPr: pr } : {}) };
   const lines = [
     `Run: ${run.workflowName} on ${run.headBranch} (${run.url})`,
     summaryLine(facts, now),

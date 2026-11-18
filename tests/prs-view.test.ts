@@ -184,3 +184,24 @@ describe("readChoices: the stored preferences, with defaults for anything missin
     expect(readChoices((key) => (key === CHOICE_KEYS.statuses ? "" : null)).statuses).toEqual([]);
   });
 });
+
+describe("a run on a PR's branch shows on the PR's line", () => {
+  const pr7 = pr("o/a", 7);
+  const run = row("o/a run 5", "s1", { forPr: "o/a#7", tone: "pending" });
+
+  test("the PR's line uses the run when the PR itself isn't watched, and the run isn't listed apart", () => {
+    const view = prsView({ open: [pr7], rows: [run] }, choices(), "s1");
+    expect(view.watchOf(pr7)?.id).toBe("o/a run 5");
+    expect(view.runs).toEqual([]);
+  });
+
+  test("a watched PR keeps its own row; its run is still not listed apart", () => {
+    const view = prsView({ open: [pr7], rows: [run, row("o/a#7", "s1")] }, choices(), "s1");
+    expect(view.watchOf(pr7)?.id).toBe("o/a#7");
+    expect(view.runs).toEqual([]);
+  });
+
+  test("a run whose PR isn't in the list stays under Workflow runs", () => {
+    expect(prsView({ open: [], rows: [run] }, choices(), "s1").runs.map((r) => r.id)).toEqual(["o/a run 5"]);
+  });
+});
