@@ -4,7 +4,7 @@ import { ComposerPill, createKeyed, Panel, Plugin, Style, type ComposerPillTone,
 import { PRS_TAB } from "../core/panel-tab";
 import type { MyPr, MyPrSort } from "../core/my-prs";
 import type { Topic } from "../core/topics";
-import { activities as trackActivities, panelOperations, type LoadedPrs, type PanelPort, type PanelSession } from "../core/panel-operations";
+import { activities as trackActivities, errorText, panelOperations, type LoadedPrs, type PanelPort, type PanelSession } from "../core/panel-operations";
 import { DEMO_KEY, demoPort } from "../core/demo";
 import { emptyStore, sessionRows, update, type Change, type Store } from "../core/store";
 import { lineDetail, pillView, prOfRow } from "../core/panel-text";
@@ -264,7 +264,7 @@ export default Plugin.define({
       void ops
         .refreshPrs(merged)
         .then(() => setMyPrsError(undefined))
-        .catch((err: unknown) => setMyPrsError(err instanceof Error ? err.message : String(err)))
+        .catch((err: unknown) => setMyPrsError(errorText(err)))
         .finally(() => setMyPrsLoading((n) => n - 1));
     };
 
@@ -287,7 +287,7 @@ export default Plugin.define({
           setTopics(result);
           setTopicsError(undefined);
         })
-        .catch((err: unknown) => setTopicsError(err instanceof Error ? err.message : String(err)))
+        .catch((err: unknown) => setTopicsError(errorText(err)))
         .finally(() => setMyPrsLoading((n) => n - 1));
     };
 

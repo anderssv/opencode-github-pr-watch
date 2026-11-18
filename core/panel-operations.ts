@@ -41,7 +41,21 @@ export interface PanelSession {
   readonly server: { readonly id: string };
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+/** Why something failed, from what was thrown: an Error, or the plain objects the RPC client rejects with (for example on a network drop). */
+export function errorText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  const found = [err, (err as { error?: unknown } | null)?.error, (err as { data?: unknown } | null)?.data]
+    .map((e) => (e as { message?: unknown } | null | undefined)?.message)
+    .find((m): m is string => typeof m === "string" && m !== "");
+  if (found) return found;
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    return String(err);
+  }
+}
+const message = errorText;
 
 export function panelOperations(port: PanelPort, apply: (change: Change) => void, feedback: Feedback) {
   const { track, say } = feedback;

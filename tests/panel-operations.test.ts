@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { activities, panelOperations, type PanelPort } from "../core/panel-operations";
+import { activities, errorText, panelOperations, type PanelPort } from "../core/panel-operations";
 import type { Change } from "../core/store";
 import type { MyPr } from "../core/my-prs";
 
@@ -160,5 +160,16 @@ describe("activities: the work in progress the top line shows", () => {
     finish();
     await slow;
     expect(seen).toEqual([["Loading"], ["Loading", "Quick"], ["Loading"], ["Loading", "Broken"], ["Loading"], []]);
+  });
+});
+
+describe("errorText: why something failed, from whatever was thrown", () => {
+  test("an Error, an RPC error object, a string, or anything else", () => {
+    expect(errorText(new Error("gh failed"))).toBe("gh failed");
+    expect(errorText({ message: "plugin reloading" })).toBe("plugin reloading");
+    expect(errorText({ error: { message: "not found" } })).toBe("not found");
+    expect(errorText({ data: { message: "timeout" } })).toBe("timeout");
+    expect(errorText("plain")).toBe("plain");
+    expect(errorText({ code: 502 })).toBe('{"code":502}');
   });
 });
