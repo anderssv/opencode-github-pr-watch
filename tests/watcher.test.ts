@@ -713,3 +713,22 @@ describe("a new problem is said once, not also as the plain event", () => {
     expect(text).toContain("conflicts with main (opened by octocat)");
   });
 });
+
+describe("desktop notifications only for what needs someone", () => {
+  test("a person's turn alerts without waking the agent; checks starting to run neither", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("review", { review: "REVIEW_REQUIRED" })] });
+    await tick(watchStarted({ lastSnapshot: "running", lastFacts: aFacts({ checks: "PENDING", review: "REVIEW_REQUIRED" }) }), ports, settings());
+    expect([ports.notifications[0]!.wake, ports.alerts[0]]).toEqual([false, true]);
+
+    const quiet = fakePorts({ snapshots: [aSnapshot("running", { checks: "PENDING" })] });
+    await tick(watchStarted({ lastSnapshot: "ready", lastFacts: aFacts({ review: "APPROVED", branch: "BEHIND", autoMerge: true }) }), quiet, settings());
+    expect(quiet.alerts.every((a) => a === false)).toBe(true);
+  });
+
+  test("progress doesn't alert", async () => {
+    const running = { checks: "PENDING" as const, checksProgress: { done: 3, total: 5 } };
+    const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5 } })], verdicts: ['{"verdict":"wait"}'] });
+    await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000 }), ports, settings());
+    expect(ports.alerts).toEqual([false]);
+  });
+});

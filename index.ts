@@ -272,12 +272,12 @@ export default Plugin.define({
         await ctx.storage.set(key, { seen, at: Date.now() } as never);
         return before;
       },
-      notify: async (sessionID, text, wake = false) => {
+      notify: async (sessionID, text, wake = false, alert = wake) => {
         const key = messageKey(sessionID, text);
         const now = Date.now();
         if (!shouldSend((await ctx.storage.get(key)) as number | undefined, now)) return;
         await ctx.storage.set(key, now);
-        collect(sessionID, text, wake);
+        collect(sessionID, text, wake, alert);
       },
       current: async (watch) => {
         const stored = (await ctx.storage.get(KEY_PREFIX + watch.id)) as unknown as Watch | undefined;
@@ -290,12 +290,14 @@ export default Plugin.define({
 
     // Messages arriving close together (typically a batch of PRs changing at once) are sent as one digest.
     // A digest wakes the agent when any message in it asks to.
-    const pending = new Map<string, { messages: string[]; wake: boolean; timer: ReturnType<typeof setTimeout> }>();
+    // ...and shows a desktop notification when any message in it needs someone.
+    const pending = new Map<string, { messages: string[]; wake: boolean; alert: string[]; timer: ReturnType<typeof setTimeout> }>();
 
-    const collect = (sessionID: string, text: string, wake: boolean) => {
-      const entry = pending.get(sessionID) ?? { messages: [], wake: false, timer: setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS) };
+    const collect = (sessionID: string, text: string, wake: boolean, alert: boolean) => {
+      const entry = pending.get(sessionID) ?? { messages: [], wake: false, alert: [], timer: setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS) };
       entry.messages.push(text);
       entry.wake ||= wake;
+      if (alert) entry.alert.push(text);
       pending.set(sessionID, entry);
     };
 
@@ -330,8 +332,9 @@ export default Plugin.define({
         const batches = await batchesFor(entry.messages);
         const progress = batches.map(({ batch }) => batchProgress(batch.label, batch.members.map((m) => batch.facts[m]), now));
         const digest = composeDigest(entry.messages, progress);
-        if (options.desktopNotifications ?? true) {
-          showDesktopNotification(entry.messages.length === 1 ? entry.messages[0]! : `PR watch: ${entry.messages.length} updates. ${progress[0] ?? entry.messages[0]}`);
+        const alerts = entry.alert.filter((m) => entry.messages.includes(m));
+        if ((options.desktopNotifications ?? true) && alerts.length > 0) {
+          showDesktopNotification(alerts.length === 1 ? alerts[0]! : `PR watch: ${alerts.length} updates. ${progress[0] ?? alerts[0]}`);
         }
         await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${digest}`, delivery: "queue", resume: entry.wake });
         debug("delivered", { sessionID, messages: entry.messages.length, wake: entry.wake });
