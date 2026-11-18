@@ -7,6 +7,7 @@ import { failureSignature, needsBotAdvice, suggestionFor, type Diagnosis } from 
 import { resolveJudgeModel, type CatalogModel, type ModelRef, type PinnedProvider, type SessionView } from "./model-guard";
 import { nextStep, summaryLine, type PrFacts } from "./pr-facts";
 import { whoActs } from "./actor";
+import { progressTrack, trackText } from "./progress";
 import { problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
 import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
@@ -50,8 +51,9 @@ export interface Watch {
   readonly judgeFailureReported?: boolean;
   /** When the PR was first seen ready for merge; it is only said once a second check agrees. */
   readonly readySince?: number;
-  /** "all" also reports progress within a step (each check or job); the default reports each change of step. */
-  readonly notify?: "major" | "all";
+  /** The progress track last said (or noted at the first check), and when; it is said again at most once a minute. */
+  readonly lastTrack?: string;
+  readonly lastTrackAt?: number;
 }
 
 /** The PR as text for the model and the listing, plus structured facts when the PR could be read. */
@@ -104,6 +106,7 @@ export interface TickResult {
 }
 
 const ACTIVE_POLL_MS = 60_000;
+const TRACK_EVERY_MS = 60_000;
 const RESUME_HINT = "call watch_pr again to resume";
 
 /** Starts the grace period after a command like `gh pr update-branch`, so the state it replaces isn't reported. */
@@ -296,7 +299,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     return { watch: next, stop: true, delayMs: 0 };
   }
   // Every change of where the PR is gets said by rule, so the end of something announced (checks restarted) is never
-  // left to the model, which may call it routine. With notify "all", progress within a step is said too.
+  // left to the model, which may call it routine. Progress within a step is said separately, as the track.
   // The commit a branch update creates, and the checks it restarts, are the caller's own doing.
   // Something to fix, or a person held up, is said when it appears, with the facts and a suggestion; the watch goes on.
   const problem = problemOf(facts, now);
@@ -315,13 +318,20 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   }
   if (found.length === 0 && watch.lastFacts && !expectedCommitArrived) {
     if (nextStep(watch.lastFacts, now) !== nextStep(facts, now)) found.push(stepChangeText(watch.lastFacts, facts, now));
-    else if (watch.notify === "all" && stepDetail(watch.lastFacts, now) !== stepDetail(facts, now)) found.push(stepDetail(facts, now));
   }
   // Becoming ready for merge is where a person has to act, so it's named even when other events already explain why.
   const nowReady = phase === "ready" && watch.lastFacts !== undefined && nextStep(watch.lastFacts, now) !== "READY";
   if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
   // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
   if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, whoActs(facts, now) === "agent");
+  // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
+  // The first check only notes it. Any other message this check already says where the PR is.
+  const track = trackText(progressTrack(facts, now));
+  if (watch.lastTrack === undefined || found.length > 0) next = { ...next, lastTrack: track, lastTrackAt: now };
+  else if (track !== watch.lastTrack && now - (watch.lastTrackAt ?? 0) >= TRACK_EVERY_MS) {
+    await say(`progress: ${track}. ${summary}`);
+    next = { ...next, lastTrack: track, lastTrackAt: now };
+  }
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
     const hours = Math.round((now - phaseSince) / 3_600_000);
     await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review (${hours} h). ${summary}`);

@@ -23,7 +23,6 @@ interface Row {
   readonly runUrl?: string;
   readonly waitingFor?: "code-review" | "run-approval";
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
-  readonly notify?: "major" | "all";
   /** The session watching it, in the panel's list. */
   readonly sessionID?: string;
   readonly sessionTitle?: string;
@@ -41,7 +40,6 @@ type PrGroupView = { readonly name: string; readonly kind: "repo" | "topic" | "a
 // The icon each button shows on a PR line, for the menu that hides them.
 const BUTTON_ICONS: Record<RowButton, IconName> = {
   session: "speech-bubble",
-  bell: "notifications",
   run: "settings-gear",
   watch: "eye",
   "new-session": "new-session",
@@ -88,7 +86,6 @@ export default Plugin.define({
       watch: async (sessionID, pr) => ((await ctx.client.rpc(PrWatch).watch({ sessionID, pr })) as { message: string }).message,
       unwatch: async (id) => void (await ctx.client.rpc(PrWatch).unwatch({ id })),
       checkNow: async () => ((await ctx.client.rpc(PrWatch).checkNow({})) as { checking: boolean }).checking,
-      setNotify: async (id, notify) => void (await ctx.client.rpc(PrWatch).setNotify({ id, notify })),
       session: async (sessionID) => {
         const current = await ctx.client.session.get({ sessionID: sessionID as never });
         return { model: current.model, agent: current.agent };
@@ -128,7 +125,6 @@ export default Plugin.define({
       refreshWatches();
       loadMyPrs();
     };
-    const setNotify = (id: string, notify: "major" | "all") => void ops.setNotify(id, notify).then(refresh);
     const stopWatching = (id: string) => void ops.stop(id).then(refresh);
 
     // An icon button whose label shows on hover; the host's IconButton only uses it for screen readers.
@@ -198,22 +194,6 @@ export default Plugin.define({
           </div>
           <Show when={shown("session") && line.onOpenSession}>
             {(open) => <TipButton icon="speech-bubble" label={`Open the watching session: ${line.row?.sessionTitle ?? ""}`} size="small" onClick={() => open()()} />}
-          </Show>
-          <Show when={shown("bell") && line.row}>
-            {(row) => {
-              const all = () => row().notify === "all";
-              return (
-                // The bell: full when every bit of progress is reported, dimmed when only changes of step are.
-                <span style={{ display: "inline-flex", opacity: all() ? "1" : "0.45" }}>
-                  <TipButton
-                    icon="notifications"
-                    label={all() ? "Reporting all progress; click to report only changes of step" : "Reporting changes of step; click to report all progress"}
-                    size="small"
-                    onClick={() => setNotify(row().id, all() ? "major" : "all")}
-                  />
-                </span>
-              );
-            }}
           </Show>
           <For each={shown("run") ? runLinks() : []}>
             {(link) => (

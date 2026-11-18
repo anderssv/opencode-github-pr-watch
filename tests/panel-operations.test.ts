@@ -35,7 +35,6 @@ class FakePort implements PanelPort {
     this.fail("checkNow");
     return !this.recentCheck;
   }
-  async setNotify(id: string, notify: "major" | "all") { this.fail(`setNotify ${id} ${notify}`); }
   async session(sessionID: string) {
     this.fail(`session ${sessionID}`);
     return { model: { providerID: "p", id: "m" }, agent: "build" };
@@ -72,17 +71,11 @@ describe("panel operations", () => {
     expect(log).toEqual(["… Starting watching o/r#7…", "Watching o/r#7"]);
   });
 
-  test("stop and notify say what they did", async () => {
+  test("stop says what it did", async () => {
     const { port, log, ops } = setup();
     await ops.stop("o/r#7");
-    await ops.setNotify("o/r#7", "all");
-    await ops.setNotify("o/r#7", "major");
-    expect(port.calls).toEqual(["unwatch o/r#7", "setNotify o/r#7 all", "setNotify o/r#7 major"]);
-    expect(log).toEqual([
-      "… Stopping watching o/r#7…", "Stopped watching o/r#7.",
-      "… Reporting all progress for o/r#7…", "o/r#7: all progress will be reported.",
-      "… Reporting only changes of step for o/r#7…", "o/r#7: only changes of step will be reported.",
-    ]);
+    expect(port.calls).toEqual(["unwatch o/r#7"]);
+    expect(log).toEqual(["… Stopping watching o/r#7…", "Stopped watching o/r#7."]);
   });
 
   test("a failed action says why and returns false; it doesn't throw", async () => {

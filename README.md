@@ -18,7 +18,7 @@ Requires OpenCode V2 (2.3 or later), the GitHub CLI `gh` logged in to the repos 
 
 - **`watch_pr`** with one or more PRs (`123`, `owner/repo#123`, a PR URL) or a workflow run link. Watches also start by themselves after `gh pr merge`, `gh pr update-branch`, `gh run rerun` and `gh workflow run`.
 - **`unwatch_pr`** stops a watch. **`list_pr_watches`** shows this session's watches and where each one is.
-- **What you hear:** every change of step, so silence means nothing changed. Pass `notify: "all"` to also hear progress within a step, such as each check or deploy job.
+- **What you hear:** every change of step, so silence means nothing changed, and progress within a step as the PR's track (`PR ✓ · Checks … 4/5 · Review · Merge · Deploy`), at most once a minute and without waking the agent.
 - **A watch ends** when the PR is done: deployed, merged with no deploy, or closed. Something to fix (checks failed, changes requested) wakes the agent and the watch follows the fix; a review, a run approval or the merge only informs, and waits without a time limit. A watch with no change for 14 days ends.
 
 In the OpenCode desktop app, a pill above the composer shows the session's watches, and a **PRs** tab in the side panel lists your open PRs and all watches, grouped by repo or by topic. See [Desktop](docs/desktop.md).

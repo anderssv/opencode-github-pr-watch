@@ -647,7 +647,7 @@ describe("a watch taken over by another folder's plugin instance (orphan takeove
   });
 });
 
-describe("notify: every step change by rule (major), progress too (all) — acme/admin#41", () => {
+describe("every step change by rule, progress as the track (acme/admin#41)", () => {
   const running = { checks: "PENDING" as const, review: "REVIEW_REQUIRED" as const, checksProgress: { done: 3, total: 5, current: "Scan" } };
   const passed = { checks: "PASS" as const, review: "REVIEW_REQUIRED" as const };
 
@@ -659,18 +659,26 @@ describe("notify: every step change by rule (major), progress too (all) — acme
     expect(ports.judged).toEqual([]);
   });
 
-  test("progress within a step is left to the model by default", async () => {
+  test("progress within a step is said as the track, as information, and the model still looks for the unexpected", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5, current: "Build" } })], verdicts: ['{"verdict":"wait"}'] });
-    await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running) }), ports, settings());
-    expect(ports.notifications).toEqual([]);
+    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000 }), ports, settings());
+    expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("progress: PR ✓ · Checks … 4/5 · Build · Review · Merge · Deploy"), wake: false }]);
     expect(ports.judged).toHaveLength(1);
+    expect(result.watch.lastTrack).toBe("PR ✓ · Checks … 4/5 · Build · Review · Merge · Deploy");
   });
 
-  test("with notify all, progress within a step is reported too", async () => {
-    const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5, current: "Build" } })] });
-    await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), notify: "all" }), ports, settings());
-    expect(ports.notifications[0]!.text).toContain("checks running 4/5 · Build");
-    expect(ports.judged).toEqual([]);
+  test("at most one progress message a minute; the next check says the latest", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5, current: "Build" } })], verdicts: ['{"verdict":"wait"}'] });
+    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 30_000 }), ports, settings());
+    expect(ports.notifications).toEqual([]);
+    expect(result.watch.lastTrack).toBe("old");
+  });
+
+  test("the first check only notes the track, so starting a watch says nothing extra", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("3 of 5", running)], verdicts: ['{"verdict":"wait"}'] });
+    const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running) }), ports, settings());
+    expect(ports.notifications).toEqual([]);
+    expect(result.watch.lastTrack).toBe("PR ✓ · Checks … 3/5 · Scan · Review · Merge · Deploy");
   });
 });
 

@@ -10,7 +10,6 @@ const row = {
     tone: { type: "string", enum: ["pending", "waiting", "failed", "done"] },
     runUrl: { type: "string" },
     waitingFor: { type: "string", enum: ["code-review", "run-approval"] },
-    notify: { type: "string", enum: ["major", "all"] },
     sessionID: { type: "string" },
     sessionTitle: { type: "string" },
     author: { type: "string" },
@@ -116,10 +115,6 @@ export const PrWatch = Rpc.define({
     watch: {
       input: { type: "object", properties: { sessionID: { type: "string" }, pr: { type: "string" } }, required: ["sessionID", "pr"], additionalProperties: false },
       output: { type: "object", properties: { message: { type: "string" } }, required: ["message"], additionalProperties: false },
-    },
-    setNotify: {
-      input: { type: "object", properties: { id: { type: "string" }, notify: { type: "string", enum: ["major", "all"] } }, required: ["id", "notify"], additionalProperties: false },
-      output: { type: "object", additionalProperties: false },
     },
     unwatch: {
       input: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },

@@ -16,7 +16,6 @@ export interface PanelPort {
   unwatch(id: string): Promise<void>;
   /** False when the watches were asked less than 20 seconds ago, and so don't check again. */
   checkNow(): Promise<boolean>;
-  setNotify(id: string, notify: "major" | "all"): Promise<void>;
   session(sessionID: string): Promise<{ readonly model: unknown; readonly agent: string | undefined }>;
   createSession(input: { readonly title: string; readonly directory: string; readonly model: unknown; readonly agent: string | undefined }): Promise<string>;
   prompt(sessionID: string, text: string): Promise<void>;
@@ -85,11 +84,6 @@ export function panelOperations(port: PanelPort, apply: (change: Change) => void
         await track(`Stopping watching ${id}…`, port.unwatch(id));
         say(`Stopped watching ${id}.`);
       }, `Could not stop watching ${id}`),
-    setNotify: (id: string, notify: "major" | "all") =>
-      act(async () => {
-        await track(notify === "all" ? `Reporting all progress for ${id}…` : `Reporting only changes of step for ${id}…`, port.setNotify(id, notify));
-        say(notify === "all" ? `${id}: all progress will be reported.` : `${id}: only changes of step will be reported.`);
-      }, `Could not change what ${id} reports`),
 
     /** A new session about the PR in the open session's folder, with its model and agent, asked to summarise it. */
     startSession: (from: PanelSession, pr: Pick<MyPr, "repo" | "number" | "title" | "url">) =>

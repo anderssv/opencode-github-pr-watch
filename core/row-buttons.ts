@@ -1,7 +1,6 @@
 /** The icons a PR line can show, in the order they appear, each of which the user can hide. */
 export const ROW_BUTTONS = [
   { id: "session", label: "Open the watching session" },
-  { id: "bell", label: "Report all progress or changes of step" },
   { id: "run", label: "Open the workflow run" },
   { id: "watch", label: "Watch or stop watching (hidden, only unwatch_pr stops a watch)" },
   { id: "new-session", label: "New session about this PR" },

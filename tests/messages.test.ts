@@ -32,16 +32,11 @@ describe("watchStartedMessage: what started it (plan 15)", () => {
 });
 
 describe("watchStartedMessage: what will be reported (acme/admin#41)", () => {
-  const model = { providerID: "github-copilot", id: "claude-haiku" };
-  test("major: every change of step, including checks finishing, so silence means nothing changed", () => {
-    const message = watchStartedMessage("o/r#1", model);
+  test("every change of step, including checks finishing, so silence means nothing changed; progress as the track", () => {
+    const message = watchStartedMessage("o/r#1", { providerID: "github-copilot", id: "claude-haiku" });
     expect(message).toContain("Every change of where the PR is is reported, including checks finishing (passed or failed)");
     expect(message).toContain("no message means the PR is still where it was");
-    expect(message).toContain('notify "all"');
-  });
-
-  test("all: progress within a step too", () => {
-    expect(watchStartedMessage("o/r#1", model, undefined, undefined, "all")).toContain("progress within a step (each check or job) is reported too");
+    expect(message).toContain("Progress within a step is sent as the PR's track, at most once a minute, without waking you");
   });
 });
 

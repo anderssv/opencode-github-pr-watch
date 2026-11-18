@@ -17,8 +17,6 @@ export interface WatchRow {
   readonly waitingFor?: "code-review" | "run-approval";
   /** Several runs to open (the runs ahead of the PR's queued checks); `runUrl` is the first. */
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
-  /** What the watch reports: each change of step, or progress within a step too. */
-  readonly notify: "major" | "all";
   /** The PR's author, state and draft flag, from the last check; absent before the first one. */
   readonly author?: string;
   readonly state?: "OPEN" | "MERGED" | "CLOSED";
@@ -111,7 +109,6 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
       const base = step && watch.lastFacts ? step.detail(watch.lastFacts) : "not checked yet";
       return {
         id: watch.id,
-        notify: watch.notify ?? "major",
         ...(watch.lastFacts?.author ? { author: watch.lastFacts.author } : {}),
         ...(watch.lastFacts && ["OPEN", "MERGED", "CLOSED"].includes(watch.lastFacts.state) ? { state: watch.lastFacts.state as "OPEN" | "MERGED" | "CLOSED" } : {}),
         ...(watch.lastFacts?.draft ? { draft: true } : {}),

@@ -16,7 +16,6 @@ export interface DemoRow {
   readonly tone: Tone;
   readonly runUrl?: string;
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
-  readonly notify?: "major" | "all";
   readonly sessionID?: string;
   readonly sessionTitle?: string;
   readonly author?: string;
@@ -45,7 +44,7 @@ export function demoData(sessionID: string, now: number): LoadedPrs & { readonly
   ];
   const here = { sessionID, sessionTitle: "Checkout work" };
   const sessionRows: DemoRow[] = [
-    { id: "acme/shop#412", label: "acme/shop#412 Add gift cards to checkout", url: url("acme/shop", 412), detail: "deploying 3/5 · prod", tone: "pending", runUrl: "https://github.com/acme/shop/actions/runs/1", notify: "all", author: "demo", state: "OPEN", ...here },
+    { id: "acme/shop#412", label: "acme/shop#412 Add gift cards to checkout", url: url("acme/shop", 412), detail: "deploying 3/5 · prod", tone: "pending", runUrl: "https://github.com/acme/shop/actions/runs/1", author: "demo", state: "OPEN", ...here },
     { id: "acme/api#77", label: "acme/api#77 Rate limit the public endpoints", url: url("acme/api", 77), detail: "waiting for code review", tone: "waiting", author: "demo", state: "OPEN", ...here },
     { id: "acme/api#81", label: "acme/api#81 Upgrade the web framework", url: url("acme/api", 81), detail: "checks failed: integration-tests", tone: "failed", runUrl: "https://github.com/acme/api/actions/runs/2", author: "demo", state: "OPEN", ...here },
   ];
@@ -77,7 +76,6 @@ export function demoPort(sessionID: () => string, now: () => number): PanelPort 
     watch: async (_, pr) => `Watching ${pr}. Demo mode`,
     unwatch: async () => undefined,
     checkNow: async () => true,
-    setNotify: async () => undefined,
     session: async () => ({ model: undefined, agent: undefined }),
     createSession: async () => "ses_demo",
     prompt: async () => undefined,

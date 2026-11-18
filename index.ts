@@ -80,7 +80,6 @@ const BATCH_PREFIX = "batch/";
 const DEFAULT_PREFERENCES = ["haiku", "mini", "flash"];
 const KEY_PREFIX = "watch/";
 const RESUMED_PREFIX = "resumed/";
-type Notify = "major" | "all";
 const optional = (unwatchedAt: number | undefined) => (unwatchedAt === undefined ? {} : { unwatchedAt });
 
 export default Plugin.define({
@@ -534,17 +533,6 @@ export default Plugin.define({
         debug("panel-watch", { sessionID, pr });
         return { message: await startWatch(sessionID, pr) };
       },
-      // The panel's bell: switches a running watch between reporting each change of step and progress too.
-      setNotify: async (input) => {
-        const { id, notify } = input as { id: string; notify: Notify };
-        const watch = (await ctx.storage.get(KEY_PREFIX + id)) as unknown as Watch | undefined;
-        if (!watch) return {};
-        const { notify: _old, ...rest } = watch;
-        await ctx.storage.set(KEY_PREFIX + id, (notify === "all" ? { ...rest, notify } : rest) as never);
-        debug("notify-set", { id, notify });
-        changed(watch.sessionID, id);
-        return {};
-      },
       unwatch: async (input) => {
         const { id } = input as { id: string };
         // Only ids of existing watches; a stop for anything else does nothing.
@@ -606,9 +594,7 @@ export default Plugin.define({
           }
           return;
         }
-        // The notify setting can be switched from the panel while a check runs; the stored one wins.
-        const { notify: _checked, ...checked } = result.watch;
-        await ctx.storage.set(KEY_PREFIX + id, (latest?.notify ? { ...checked, notify: latest.notify } : checked) as never);
+        await ctx.storage.set(KEY_PREFIX + id, result.watch as never);
         changed(result.watch.sessionID, id);
         delayMs = result.delayMs > 0 ? alignedDelay(Date.now(), result.delayMs) : result.delayMs;
       } catch (err) {
@@ -679,8 +665,8 @@ export default Plugin.define({
       await removeFinishedBatches();
     };
 
-    const startWatch = async (sessionID: string, prReference: string, cwd?: string, batchID?: string, trigger?: Trigger, startedBy?: string, notify?: Notify): Promise<string> =>
-      (await startOne(sessionID, prReference, cwd, batchID, trigger, startedBy, notify)).message;
+    const startWatch = async (sessionID: string, prReference: string, cwd?: string, batchID?: string, trigger?: Trigger, startedBy?: string): Promise<string> =>
+      (await startOne(sessionID, prReference, cwd, batchID, trigger, startedBy)).message;
 
     // The provider guard and the judging model for a session's watches; throws when watching would break the guard.
     const guarded = async (sessionID: string) => {
@@ -706,8 +692,6 @@ export default Plugin.define({
       trigger?: Trigger,
       /** The command that started it; set for automatic starts. */
       startedBy?: string,
-      /** What to report: each change of step (default), or progress within a step too. */
-      notify?: Notify,
     ): Promise<{ message: string; started?: { id: string; title: string; facts: PrFacts } }> => {
       const runRef = parseRunReference(prReference);
       const ref = runRef ? { repo: runRef.repo, pr: 0 } : parsePrReference(prReference);
@@ -766,7 +750,6 @@ export default Plugin.define({
       const watch: Watch = {
         token: `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
         id, sessionID, repo, pr: ref.pr, pinned: pin.pinned,
-        ...(notify === "all" ? { notify } : {}),
         ...(runRef ? { run: runRef.run } : {}),
         startedAt: now, lastChangeAt: now, lastCheckedAt: now,
         lastSnapshot: snapshot.text, lastFacts: snapshot.facts,
@@ -784,7 +767,7 @@ export default Plugin.define({
       schedule(id, pollDelay(snapshot.facts, now, watch.awaiting !== undefined));
       const title = snapshot.text.split("\n")[0]!.replace(/^(PR|Run): /, "").replace(/ \(https:\/\/\S+\)$/, "");
       const prefix = replaced ? "Replaced the earlier watch. " : "";
-      return { message: prefix + watchStartedMessage(id, judge.model, summary, startedBy, notify), started: { id, title, facts: snapshot.facts } };
+      return { message: prefix + watchStartedMessage(id, judge.model, summary, startedBy), started: { id, title, facts: snapshot.facts } };
     };
 
     // The agent's answer when the model couldn't tell which workflow deploys: stored per repo, it overrides the model.
@@ -802,12 +785,12 @@ export default Plugin.define({
       await ctx.storage.set(`workflow-role/${repo}/${id}`, "deploy");
     };
 
-    const startMany = async (sessionID: string, text: string, deployWorkflow?: string, notify?: Notify): Promise<string> => {
+    const startMany = async (sessionID: string, text: string, deployWorkflow?: string): Promise<string> => {
       const tokens = text.split(/[\s,]+/).filter(Boolean);
       const runs = tokens.filter((token) => parseRunReference(token));
       if (runs.length > 0) {
         const lines = await Promise.all(
-          tokens.map((token) => startWatch(sessionID, token, undefined, undefined, undefined, undefined, notify).catch((err) => `${token}: ${err instanceof Error ? err.message : String(err)}`)),
+          tokens.map((token) => startWatch(sessionID, token).catch((err) => `${token}: ${err instanceof Error ? err.message : String(err)}`)),
         );
         return lines.join("\n");
       }
@@ -819,7 +802,7 @@ export default Plugin.define({
           await rememberDeployWorkflow(repo, deployWorkflow, cwd);
         }
       }
-      if (refs.length === 1 && invalid.length === 0) return startWatch(sessionID, text.trim(), undefined, undefined, undefined, undefined, notify);
+      if (refs.length === 1 && invalid.length === 0) return startWatch(sessionID, text.trim());
 
       const batchID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const lines: string[] = invalid.map((token) => `Not a PR reference: ${token}`);
@@ -827,7 +810,7 @@ export default Plugin.define({
       for (const ref of refs) {
         const reference = ref.repo ? `${ref.repo}#${ref.pr}` : String(ref.pr);
         try {
-          const result = await startOne(sessionID, reference, undefined, batchID, undefined, undefined, notify);
+          const result = await startOne(sessionID, reference, undefined, batchID);
           lines.push(result.message);
           if (result.started) started.push(result.started);
         } catch (err) {
@@ -959,7 +942,7 @@ export default Plugin.define({
           "Follows the PR until it is done (deployed, merged with no deploy, or closed): something to fix (checks failed, changes requested, deploy failed) " +
           "wakes the agent with a suggestion and the watch follows the fix; a review, a run approval or the merge only informs. " +
           "Every change of where the PR is gets a message, including checks finishing (passed or failed), so no message means nothing changed; " +
-          'notify "all" also reports progress within a step (each check or job). ' +
+          "Progress within a step is sent as the PR's track (PR, checks, review, merge, deploy), at most once a minute, without waking the agent. " +
           "Also watches a single workflow run without a PR (a manual dispatch), given its run link, until it succeeds, fails or waits for approval. " +
           "Starts automatically after gh pr merge, gh pr update-branch, gh run rerun and gh workflow run. Use this instead of polling with sleep. " +
           "Answers at once; the first status (or why it isn't watched) follows as a message within about 15 seconds, so don't wait or poll for it.",
@@ -972,14 +955,6 @@ export default Plugin.define({
                 'One or more PRs: a number, "owner/repo#123" or a GitHub PR URL, or workflow run links (https://github.com/owner/repo/actions/runs/123), separated by spaces, commas or newlines. ' +
                 "Several PRs started together are reported as a batch.",
             },
-            notify: {
-              type: "string",
-              enum: ["major", "all"],
-              description:
-                'What gets a message. "major" (default): every change of where the PR is (checks passed or failed, review, merge, ' +
-                'deploy started or done, run approval needed), plus anything unexpected. "all": also progress within a step, ' +
-                "each check or job; wakes the agent often, so for short runs you want to follow closely.",
-            },
             deployWorkflow: {
               type: "string",
               description:
@@ -991,7 +966,7 @@ export default Plugin.define({
           additionalProperties: false,
         },
         async execute(rawInput, context) {
-          const input = rawInput as { pr: string; deployWorkflow?: string; notify?: Notify };
+          const input = rawInput as { pr: string; deployWorkflow?: string };
           // What fails at once (no references, the provider guard) is the answer; the first check, which takes
           // 10-15 seconds of gh calls, runs in the background and its result comes as a message.
           if (parsePrReferences(input.pr).refs.length === 0 && !input.pr.split(/[\s,]+/).some((token) => parseRunReference(token))) {
@@ -1000,7 +975,7 @@ export default Plugin.define({
           await guarded(context.sessionID);
           const sessionID = context.sessionID;
           void (async () => {
-            const result = await startMany(sessionID, input.pr, input.deployWorkflow, input.notify).then(startResult, (err: unknown) => startFailed(input.pr, err));
+            const result = await startMany(sessionID, input.pr, input.deployWorkflow).then(startResult, (err: unknown) => startFailed(input.pr, err));
             debug("start-reported", { sessionID, pr: input.pr, wake: result?.wake ?? false });
             if (result) await deliver(sessionID, result.text, result.wake);
           })().catch((err: unknown) => debug("start-report-failed", { sessionID, pr: input.pr, error: err }));
