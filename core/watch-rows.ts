@@ -2,6 +2,7 @@ import { nextStep, type PrFacts, type Step } from "./pr-facts";
 import type { Watch } from "./watcher";
 import type { AttachedRun } from "./attached-runs";
 import { progressTrack, type Stage } from "./progress";
+import { whoActs } from "./actor";
 
 export type WatchTone = "pending" | "waiting" | "failed" | "done";
 
@@ -23,6 +24,8 @@ export interface WatchRow {
   readonly draft?: boolean;
   /** Where the PR is on its way to production, stage by stage; absent before the first check. */
   readonly track?: readonly Stage[];
+  /** Needs more than waiting: something to fix, or unresolved comments. A waiting line without it is just a pause. */
+  readonly attention?: true;
 }
 
 // "3/4 · DEPLOY - Prod" while going, ", 4 steps done" once all of them are.
@@ -124,6 +127,7 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
         // A run waiting for approval needs a person; one that is going makes the row pending, unless the PR has failed.
         // Unresolved review comments need an answer, so they turn a line that is otherwise fine yellow.
         tone: unresolved > 0 && (tone === "pending" || tone === "done") ? "waiting" : tone,
+        ...(unresolved > 0 || (watch.lastFacts && whoActs(watch.lastFacts, now) === "agent") ? { attention: true as const } : {}),
         ...(approving || ["CHECKS_WAITING", "CHECKS_BLOCKED", "DEPLOY_WAITING"].includes(stepName ?? "")
           ? { waitingFor: "run-approval" as const }
           : stepName === "NEEDS_REVIEW" ? { waitingFor: "code-review" as const } : {}),

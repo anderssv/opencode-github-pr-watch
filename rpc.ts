@@ -15,6 +15,7 @@ const row = {
     author: { type: "string" },
     state: { type: "string", enum: ["OPEN", "MERGED", "CLOSED"] },
     draft: { type: "boolean" },
+    attention: { type: "boolean", enum: [true] },
     track: {
       type: "array",
       items: {

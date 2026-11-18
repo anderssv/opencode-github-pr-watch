@@ -20,6 +20,7 @@ interface Row {
   readonly detail: string;
   readonly tone: "pending" | "waiting" | "failed" | "done";
   readonly track?: readonly Stage[];
+  readonly attention?: true;
   readonly runUrl?: string;
   readonly waitingFor?: "code-review" | "run-approval";
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
@@ -127,6 +128,16 @@ export default Plugin.define({
     };
     const stopWatching = (id: string) => void ops.stop(id).then(refresh);
 
+    // Just waiting on a person (a review, a run approval, the merge): a pause. The host has no pause icon, so it's drawn
+    // here at the host's small icon size, in the text colour like its icons.
+    const PauseIcon = (): JSX.Element => (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-label="Waiting" style={{ display: "block" }}>
+        <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.2" />
+        <rect x="5.6" y="5" width="1.5" height="6" rx="0.5" fill="currentColor" />
+        <rect x="8.9" y="5" width="1.5" height="6" rx="0.5" fill="currentColor" />
+      </svg>
+    );
+
     // An icon button whose label shows on hover; the host's IconButton only uses it for screen readers.
     const TipButton = (props: Parameters<typeof ctx.ui.IconButton>[0]): JSX.Element => (
       <ctx.ui.Tooltip value={props.label}>
@@ -186,7 +197,9 @@ export default Plugin.define({
               {(row) => (
               // The PR itself (a draft, conflicts, behind) and where it is, on hover.
               <span title={row().detail} style={{ display: "inline-flex" }}>
-                <ctx.ui.Icon name={LOOK[row().tone].icon} size="small" />
+                <Show when={row().tone === "waiting" && !row().attention} fallback={<ctx.ui.Icon name={LOOK[row().tone].icon} size="small" />}>
+                  <PauseIcon />
+                </Show>
               </span>
             )}
             </Show>

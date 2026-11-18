@@ -147,3 +147,20 @@ describe("unresolved review comments show on the icon in front of the line", () 
     expect(row({ checks: "PENDING", unresolvedThreads: 0 })).toMatchObject({ tone: "pending", detail: "checks running" });
   });
 });
+
+describe("attention: a waiting line that needs more than patience", () => {
+  const row = (facts: Parameters<typeof aFacts>[0]) => watchRows([{ ...aWatch(), sessionID: "s1", lastFacts: aFacts(facts) }], "s1", NOW)[0]!;
+
+  test("just waiting on a person: no attention (a pause)", () => {
+    expect(row({ review: "REVIEW_REQUIRED" }).attention).toBeUndefined();
+    expect(row({ checks: "PENDING", waitingChecks: ["Plan"] }).attention).toBeUndefined();
+    expect(row({}).attention).toBeUndefined();
+  });
+
+  test("something to fix, or unresolved comments: attention", () => {
+    expect(row({ branch: "BEHIND" }).attention).toBe(true);
+    expect(row({ review: "CHANGES_REQUESTED" }).attention).toBe(true);
+    expect(row({ branch: "CONFLICT" }).attention).toBe(true);
+    expect(row({ review: "REVIEW_REQUIRED", unresolvedThreads: 1 }).attention).toBe(true);
+  });
+});
