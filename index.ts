@@ -1,4 +1,4 @@
-import { PrBatcher } from "./core/pr-batch";
+import { PR_BATCHER_VERSION, PrBatcher } from "./core/pr-batch";
 import { enqueue, flushOutbox, registerDeliverer, releaseDeliverer, type Queued } from "./core/outbox";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -409,7 +409,10 @@ export default Plugin.define({
     const owning = () => ownsPolling(shared, directory, owner);
     // Shared by every instance in the process, so PRs checked at the same moment share one call whichever directory they're in.
     useCallCache(shared.callCache);
-    shared.prReaders ??= { first: new PrBatcher(runGhFirst, 200), background: new PrBatcher(runGh, 1_000) };
+    // Kept across reloads like the rest of the process state, but replaced when the batcher's code changes.
+    if (shared.prReaders?.version !== PR_BATCHER_VERSION) {
+      shared.prReaders = { version: PR_BATCHER_VERSION, first: new PrBatcher(runGhFirst, 200), background: new PrBatcher(runGh, 1_000) };
+    }
     const readPr = (priority: "first" | "background"): ReadPr => (repo, pr, cwd) => processState().prReaders![priority].read(repo, pr, cwd);
     registerDeliverer(shared.outbox, owner, deliverQueued);
 

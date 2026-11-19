@@ -36,7 +36,7 @@ export interface ProcessState {
   readonly outbox: Outbox;
   readonly ghQueue: GhQueue;
   /** Batched PR reads (one GraphQL call for the PRs asked for together), per priority; made by the plugin. */
-  prReaders?: { readonly first: PrBatcher; readonly background: PrBatcher };
+  prReaders?: { readonly version: number; readonly first: PrBatcher; readonly background: PrBatcher };
   /** GitHub answers kept for a while, shared by every watch; switched on by the plugin. */
   readonly callCache: CallCache;
   /** Caches kept by name, so a reload (which imports the modules afresh) doesn't empty them. */
