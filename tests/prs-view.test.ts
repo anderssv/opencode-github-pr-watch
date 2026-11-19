@@ -132,7 +132,7 @@ describe("statuses: what a line's watch says about it", () => {
     expect(statusSummary(["review", "done"])).toBe("Status: 2 of 6");
   });
 
-  test("the filter keeps only lines with a chosen status, runs and merged PRs too", () => {
+  test("the filter keeps only open PRs and runs with a chosen status; recently merged ones all stay", () => {
     const rows = [
       row("o/a#2", "s1", { tone: "waiting", waitingFor: "code-review" }),
       row("bot/dep#7", "s2", { tone: "failed" }),
@@ -143,7 +143,8 @@ describe("statuses: what a line's watch says about it", () => {
     expect(numbers(prsView(both, choices({ statuses: ["needs-me", "unwatched"] }), "s1").open)).toEqual([7, 1, 3]);
     expect(prsView(both, choices({ statuses: ["review"] }), "s1").runs).toEqual([]);
     expect(prsView(both, choices({ statuses: ["progress"] }), "s1").runs.map((r) => r.id)).toEqual(["o/a run 5"]);
-    expect(prsView(both, choices({ statuses: ["review"] }), "s1").merged).toEqual([]);
+    // Merged PRs are done by definition; filtering them by status only ever emptied the list.
+    expect(prsView(both, choices({ statuses: ["review"] }), "s1").merged).toEqual(prsView(both, choices(), "s1").merged);
     expect(prsView(both, choices({ statuses: [] }), "s1").openEmpty).toBe("No open PRs match.");
   });
 });
