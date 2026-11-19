@@ -211,9 +211,6 @@ export default Plugin.define({
               {(track) => <Track stages={track()} after={line.after} />}
             </Show>
           </div>
-          <Show when={shown("session") && line.onOpenSession}>
-            {(open) => <TipButton icon="speech-bubble" label={`Open the watching session: ${line.row?.sessionTitle ?? ""}`} size="small" onClick={() => open()()} />}
-          </Show>
           <For each={shown("run") ? runLinks() : []}>
             {(link) => (
               // A gear for the build or deploy run; it turns while the run is still going.
@@ -222,6 +219,9 @@ export default Plugin.define({
               </span>
             )}
           </For>
+          <Show when={shown("session") && line.onOpenSession}>
+            {(open) => <TipButton icon="speech-bubble" label={`Open the watching session: ${line.row?.sessionTitle ?? ""}`} size="small" onClick={() => open()()} />}
+          </Show>
           <Show when={shown("watch") && line.onStop}>{(stop) => <TipButton icon="outline-eye-slash" label="Stop watching" size="small" onClick={() => stop()()} />}</Show>
           <Show when={shown("watch") && !line.onStop && line.onWatch}>{(watch) => <TipButton icon="eye" label="Watch in this session" size="small" onClick={() => watch()()} />}</Show>
           <Show when={shown("new-session") && line.onNewSession}>

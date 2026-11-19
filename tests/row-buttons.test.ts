@@ -17,7 +17,7 @@ describe("row buttons", () => {
   });
 
   test("each button has a label for the menu", () => {
-    expect(ROW_BUTTONS.map((b) => b.id)).toEqual(["session", "run", "watch", "new-session", "github"]);
+    expect(ROW_BUTTONS.map((b) => b.id)).toEqual(["run", "session", "watch", "new-session", "github"]);
     expect(ROW_BUTTONS.every((b) => b.label.length > 0)).toBe(true);
     expect(HIDDEN_BUTTONS_KEY).toBe("pr-watch.hiddenButtons");
   });
