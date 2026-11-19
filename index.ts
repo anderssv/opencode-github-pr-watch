@@ -616,7 +616,10 @@ export default Plugin.define({
         const result = await tick(watch, ports, settings);
         // A newer watch on the same PR may have replaced this one while it was checking; leave that one alone.
         const latest = (await ctx.storage.get(KEY_PREFIX + id)) as unknown as Watch | undefined;
-        if (!owning()) return;
+        // A check that finishes after a reload handed the loop to a newer instance still saves what it found (and may
+        // have said): dropping it made the new owner find the same change again and say it twice. Only one check of a
+        // watch runs at a time (beginCheck), and the token guards against a replaced watch; the next check is the new
+        // owner's (schedule hands it over).
         if (latest?.token !== watch.token) {
           if (latest) schedule(id, 0);
           return;
