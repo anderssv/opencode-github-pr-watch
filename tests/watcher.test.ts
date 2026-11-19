@@ -166,6 +166,8 @@ describe("tick: waiting", () => {
     expect(second.stop).toBe(false);
     expect(ports.notifications).toHaveLength(1);
     expect(ports.notifications[0]!.text).toContain("still waiting for code review");
+    // Into the session only, which marks it as updated; no desktop notification for something nobody acted on yet.
+    expect([ports.notifications[0]!.wake, ports.alerts[0]]).toEqual([false, false]);
   });
 
   test("a watch that starts while a deploy waits for approval says so once", async () => {
