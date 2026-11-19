@@ -2,7 +2,7 @@ import type { DebugLog } from "../core/debug-log";
 import type { CatalogModel, JudgeModelInput, ModelRef, SessionView } from "../core/model-guard";
 import type { Diagnosis } from "../core/advice";
 import type { PhaseLimit } from "../core/timing";
-import type { Snapshot, Watch, WatchPorts, WatchSettings } from "../core/watcher";
+import { SNAPSHOT_VERSION, type Snapshot, type Watch, type WatchPorts, type WatchSettings } from "../core/watcher";
 import type { JobView, PrFacts, PrView, RunWithJobs } from "../core/pr-facts";
 
 export const aModel = (providerID: string, id: string, overrides: Partial<CatalogModel> = {}): CatalogModel => ({
@@ -31,6 +31,7 @@ export const aWatch = (overrides: Partial<Watch> = {}): Watch => ({
   sessionID: "ses_parent",
   repo: "acme/api",
   pr: 42,
+  snapshotVersion: SNAPSHOT_VERSION,
   pinned: { providerID: "github-copilot", directory: "/repo" },
   startedAt: 0,
   lastChangeAt: 0,

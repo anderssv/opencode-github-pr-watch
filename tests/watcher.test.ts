@@ -1,4 +1,5 @@
 import { TRACK_VERSION } from "../core/progress";
+import { SNAPSHOT_VERSION } from "../core/watcher";
 import { describe, expect, test } from "bun:test";
 import { awaitTrigger, judgePrompt, tick } from "../core/watcher";
 import { aFacts, aSession, aSnapshot, aWatch, FakePorts, settings } from "./mothers";
@@ -784,5 +785,21 @@ describe("a watch started from the quick read", () => {
     expect(ports.notifications).toEqual([]);
     expect(result.watch.provisional).toBeUndefined();
     expect(result.watch.lastSnapshot).toBe("full");
+  });
+});
+
+describe("a watch from before a change in how the state is read", () => {
+  test("takes its next check as the baseline: noted, not reported", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("without scanners", { review: "REVIEW_REQUIRED" })] });
+    const result = await tick(watchStarted({ lastSnapshot: "with scanners", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }), snapshotVersion: SNAPSHOT_VERSION - 1 }), ports, settings());
+    expect(ports.notifications).toEqual([]);
+    expect(result.watch.snapshotVersion).toBe(SNAPSHOT_VERSION);
+    expect(result.watch.lastSnapshot).toBe("without scanners");
+  });
+
+  test("the current version compares as usual", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("changed", { review: "REVIEW_REQUIRED" })], verdicts: ['{"verdict":"notify","reason":"x"}'] });
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }), snapshotVersion: SNAPSHOT_VERSION }), ports, settings());
+    expect(ports.notifications.length).toBe(1);
   });
 });

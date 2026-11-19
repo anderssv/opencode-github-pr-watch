@@ -14,6 +14,12 @@ import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 const JUDGE_FAILURE_REPORT_MS = 30 * 60_000;
 
 
+/**
+ * Raised when what a check reads changes (a new source, a fix in what counts), so each watch takes its next check as
+ * the new baseline instead of reporting the difference as something that happened on the PR.
+ */
+export const SNAPSHOT_VERSION = 2;
+
 export interface Watch {
   /** The learned time limit for the current build or deploy phase. */
   readonly phaseLimit?: PhaseLimit;
@@ -35,6 +41,8 @@ export interface Watch {
   readonly lastFacts?: PrFacts;
   /** Started from the quick read: the first full check becomes the baseline instead of being compared with it. */
   readonly provisional?: boolean;
+  /** How the state was read when this watch's baseline was taken; see SNAPSHOT_VERSION. */
+  readonly snapshotVersion?: number;
   readonly stuckReported?: boolean;
   /** The approval wait last reported to the user, so a watch started during a wait says it once. */
   readonly approvalReported?: string;
@@ -201,9 +209,9 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     : snapshot.facts;
   if (facts) use(facts);
   if (!facts) return { watch: { ...watch, lastCheckedAt: now }, stop: false, delayMs: ACTIVE_POLL_MS };
-  if (watch.provisional) {
+  if (watch.provisional || watch.snapshotVersion !== SNAPSHOT_VERSION) {
     const { provisional: _done, ...rest } = watch;
-    return tickInner({ ...rest, lastSnapshot: snapshot.text, lastFacts: facts }, { ...ports, snapshot: async () => snapshot }, settings, use, say);
+    return tickInner({ ...rest, lastSnapshot: snapshot.text, lastFacts: facts, snapshotVersion: SNAPSHOT_VERSION }, { ...ports, snapshot: async () => snapshot }, settings, use, say);
   }
 
   const changed = snapshot.text !== watch.lastSnapshot;

@@ -29,7 +29,7 @@ import { notificationCommands } from "./core/desktop-notification";
 import { messageKey, shouldSend } from "./core/dedupe";
 import { resumedMessage, startFailed, startingMessage, startResult, watchStartedMessage } from "./core/messages";
 import { pinProvider, resolveJudgeModel, type ModelRef, type SessionView } from "./core/model-guard";
-import { awaitTrigger, tick, type Snapshot, type Watch, type WatchPorts, type WatchSettings } from "./core/watcher";
+import { awaitTrigger, tick, type Snapshot, type Watch, type WatchPorts, type WatchSettings, SNAPSHOT_VERSION } from "./core/watcher";
 import { summaryLine, type PrFacts, setBookkeepingJobs } from "./core/pr-facts";
 import { batchLabel, batchProgress, composeDigest, parsePrReferences, replaceMember, withoutMember, type Batch } from "./core/batch";
 import { phaseOf, pollDelay, startDecision, type Trigger } from "./core/policy";
@@ -814,6 +814,7 @@ export default Plugin.define({
         lastSnapshot: snapshot.text, lastFacts: snapshot.facts,
         ...(batchID ? { batchID } : {}),
         ...(quick ? { provisional: true } : {}),
+        snapshotVersion: SNAPSHOT_VERSION,
         ...(trigger ? { awaiting: { trigger, since: now } } : decision.awaiting ? { awaiting: decision.awaiting } : {}),
         ...(trigger === "update-branch" ? { expectedCommitSince: now } : {}),
         ...phaseFields(snapshot.facts, now),
