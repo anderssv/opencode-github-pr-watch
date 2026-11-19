@@ -166,8 +166,7 @@ describe("tick: waiting", () => {
     expect(second.stop).toBe(false);
     expect(ports.notifications).toHaveLength(1);
     expect(ports.notifications[0]!.text).toContain("still waiting for code review");
-    // Into the session only, which marks it as updated; no desktop notification for something nobody acted on yet.
-    expect([ports.notifications[0]!.wake, ports.alerts[0]]).toEqual([false, false]);
+    expect(ports.notifications[0]!.wake).toBe(false);
   });
 
   test("a watch that starts while a deploy waits for approval says so once", async () => {
@@ -731,22 +730,11 @@ describe("a new problem is said once, not also as the plain event", () => {
   });
 });
 
-describe("desktop notifications only for what needs someone", () => {
-  test("a person's turn alerts without waking the agent; checks starting to run neither", async () => {
+describe("what wakes the agent", () => {
+  test("a person's turn informs without waking the agent", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("review", { review: "REVIEW_REQUIRED" })] });
     await tick(watchStarted({ lastSnapshot: "running", lastFacts: aFacts({ checks: "PENDING", review: "REVIEW_REQUIRED" }) }), ports, settings());
-    expect([ports.notifications[0]!.wake, ports.alerts[0]]).toEqual([false, true]);
-
-    const quiet = fakePorts({ snapshots: [aSnapshot("running", { checks: "PENDING" })] });
-    await tick(watchStarted({ lastSnapshot: "ready", lastFacts: aFacts({ review: "APPROVED", branch: "BEHIND", autoMerge: true }) }), quiet, settings());
-    expect(quiet.alerts.every((a) => a === false)).toBe(true);
-  });
-
-  test("progress doesn't alert", async () => {
-    const running = { checks: "PENDING" as const, checksProgress: { done: 3, total: 5 } };
-    const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5 } })], verdicts: ['{"verdict":"wait"}'] });
-    await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000, lastTrackVersion: TRACK_VERSION }), ports, settings());
-    expect(ports.alerts).toEqual([false]);
+    expect(ports.notifications[0]!.wake).toBe(false);
   });
 });
 
@@ -760,13 +748,13 @@ describe("the daily review reminder says who it waits for", () => {
 });
 
 describe("new comments from collaborators are said, without their text", () => {
-  test("after the first read; informs and alerts, doesn't wake", async () => {
+  test("after the first read; informs, doesn't wake", async () => {
     const before = aFacts({ review: "REVIEW_REQUIRED", commentIds: ["c1"], comments: [{ id: "c1", author: "anna", url: "u1" }] });
     const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["c1", "t1"], comments: [{ id: "c1", author: "anna", url: "u1" }, { id: "t1", author: "bob", path: "src/a.ts", url: "u2" }] };
     const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
     await tick(watchStarted({ lastSnapshot: "commented", lastFacts: before }), ports, settings());
     expect(ports.notifications[0]!.text).toContain("new review comment by bob on src/a.ts (u2)");
-    expect([ports.notifications[0]!.wake, ports.alerts[0]]).toEqual([false, true]);
+    expect(ports.notifications[0]!.wake).toBe(false);
   });
 
   test("a failed read keeps the last one, so the next read doesn't report old comments as new", async () => {

@@ -47,7 +47,7 @@ export const settings = (overrides: Partial<WatchSettings> = {}): WatchSettings 
 
 export class FakePorts implements WatchPorts {
   readonly judged: { model: ModelRef; directory: string; prompt: string }[] = [];
-  readonly notifications: { sessionID: string; text: string; wake: boolean; alert?: boolean }[] = [];
+  readonly notifications: { sessionID: string; text: string; wake: boolean }[] = [];
   private snapshots: Snapshot[];
   private verdicts: string[];
   sessionView: SessionView = aSession();
@@ -80,11 +80,9 @@ export class FakePorts implements WatchPorts {
     this.judged.push({ model, directory, prompt });
     return this.verdicts.shift() ?? "";
   }
-  readonly alerts: boolean[] = [];
-  async notify(sessionID: string, text: string, wake = false, alert = wake): Promise<void> {
+  async notify(sessionID: string, text: string, wake = false): Promise<void> {
     if (this.notifyError) throw this.notifyError;
     this.notifications.push({ sessionID, text, wake });
-    this.alerts.push(alert);
   }
   diagnosis?: Diagnosis;
   limit?: PhaseLimit;

@@ -23,9 +23,6 @@ import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, work
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory, findGitPushes, findPrCreates, prUrlsIn } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import { notificationCommands } from "./core/desktop-notification";
 import { messageKey, shouldSend } from "./core/dedupe";
 import { resumedMessage, startFailed, startingMessage, startResult, watchStartedMessage } from "./core/messages";
 import { pinProvider, resolveJudgeModel, type ModelRef, type SessionView } from "./core/model-guard";
@@ -43,32 +40,11 @@ interface PrWatchOptions {
   maxMinutes?: number;
   /** Full path to gh, when it isn't on OpenCode's PATH or in /opt/homebrew/bin or /usr/local/bin. */
   ghPath?: string;
-  /** Also show a macOS notification with the watcher's message. Default true. */
-  desktopNotifications?: boolean;
   /** Write a JSON-lines debug log of what each watch saw and decided: true (default, ~/.local/state/opencode-github-pr-watch/debug.jsonl), false, or a path. */
   debugLog?: boolean | string;
   /** Names of jobs that only detect changes or report a status (monorepo bookkeeping). Defaults cover common names. */
   bookkeepingJobs?: string[];
 }
-
-// Messages are "<owner/repo#pr>: <text>"; the PR becomes the notification title.
-const TERMINAL_NOTIFIER = ["/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier"].find((path) => existsSync(path));
-
-const runFirstSuccessful = (commands: [string, string[]][]) => {
-  const [first, ...rest] = commands;
-  if (!first) return;
-  execFile(first[0], first[1], { timeout: 10_000 }, (err) => {
-    if (!err) return;
-    console.error(`[pr-watch] desktop notification via ${first[0]} failed:`, err.message);
-    runFirstSuccessful(rest);
-  });
-};
-
-const showDesktopNotification = (message: string) => {
-  const separator = message.indexOf(": ");
-  const [title, text] = separator > 0 ? [message.slice(0, separator), message.slice(separator + 2)] : ["PR watch", message];
-  runFirstSuccessful(notificationCommands(title, text, TERMINAL_NOTIFIER));
-};
 
 const ERROR_RETRY_MS = 60_000;
 const BUSY_RETRY_MS = 15_000;
@@ -301,12 +277,12 @@ export default Plugin.define({
         await ctx.storage.set(key, { seen, at: Date.now() } as never);
         return before;
       },
-      notify: async (sessionID, text, wake = false, alert = wake) => {
+      notify: async (sessionID, text, wake = false) => {
         const key = messageKey(sessionID, text);
         const now = Date.now();
         if (!shouldSend((await ctx.storage.get(key)) as number | undefined, now)) return;
         await ctx.storage.set(key, now);
-        collect(sessionID, text, wake, alert);
+        collect(sessionID, text, wake);
       },
       current: async (watch) => {
         const stored = (await ctx.storage.get(KEY_PREFIX + watch.id)) as unknown as Watch | undefined;
@@ -319,9 +295,8 @@ export default Plugin.define({
 
     // Messages arriving close together (typically a batch of PRs changing at once) are sent as one digest.
     // A digest wakes the agent when any message in it asks to.
-    // ...and shows a desktop notification when any message in it needs someone.
-    const collect = (sessionID: string, text: string, wake: boolean, alert: boolean) => {
-      if (enqueue(processState().outbox, sessionID, text, wake, alert)) setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS);
+    const collect = (sessionID: string, text: string, wake: boolean) => {
+      if (enqueue(processState().outbox, sessionID, text, wake)) setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS);
     };
 
     const batchesFor = async (messages: string[]) => {
@@ -366,11 +341,7 @@ export default Plugin.define({
       const batches = await batchesFor(kept);
       const progress = batches.map(({ batch }) => batchProgress(batch.label, batch.members.map((m) => batch.facts[m]), now));
       const digest = composeDigest(kept, progress);
-      const alerts = entry.alert.filter((m) => kept.includes(m));
       await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${digest}`, delivery: "queue", resume: entry.wake });
-      if ((options.desktopNotifications ?? true) && alerts.length > 0) {
-        showDesktopNotification(alerts.length === 1 ? alerts[0]! : `PR watch: ${alerts.length} updates. ${progress[0] ?? alerts[0]}`);
-      }
       debug("delivered", { sessionID, messages: kept.length, wake: entry.wake });
       await removeFinishedBatches();
     };

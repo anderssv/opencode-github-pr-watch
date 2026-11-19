@@ -12,7 +12,6 @@
         "stuckMinutes": 30, // report a deploy job unfinished for longer than this
         "ghPath": "/opt/homebrew/bin/gh", // optional; gh is found on your login shell's PATH (mise shims skipped), then in /opt/homebrew/bin and /usr/local/bin
         "maxMinutes": 30, // limit when a workflow has too little history, and for auto-merge/auto-update waits
-        "desktopNotifications": true, // macOS notification with the watcher's message
         "debugLog": true, // JSON-lines debug log at ~/.local/state/opencode-github-pr-watch/debug.jsonl; false, or a path
         "bookkeepingJobs": ["detect changes", "build status"] // jobs that only detect changes or report a status in monorepos; defaults cover common names
       }
@@ -40,4 +39,4 @@ Find one watch's history with `grep '"id":"o/r#123"' ~/.local/state/opencode-git
 
 ## Notifications
 
-Every message is posted to the session; only some wake the agent (see [How watching works](how-it-works.md)). With `desktopNotifications` on, a message is also shown as a macOS notification (PR as title, first line as text) when someone has to act: something for the agent to fix, a person's turn (a review, a run approval, the merge), the end of a watch, or what the model flags. Progress, ordinary changes of step and the daily reminders only go to the session, which marks it as updated. With [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) installed (`brew install terminal-notifier`), clicking it brings the OpenCode desktop app to the front and a newer notification for the same PR replaces the older one; if it is missing or fails (for example when macOS hasn't allowed its notifications yet), `osascript` is used instead and clicking opens Script Editor. Allow notifications for terminal-notifier in System Settings → Notifications. It appears on the machine running the OpenCode background service. The quiet "Watching …" notes don't notify.
+Every message is posted to the session, which marks it as updated; only some wake the agent (see [How watching works](how-it-works.md)).

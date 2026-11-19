@@ -5,7 +5,6 @@
 export interface Queued {
   messages: string[];
   wake: boolean;
-  alert: string[];
   /** Delivery attempts that failed or timed out. */
   attempts: number;
 }
@@ -19,12 +18,11 @@ export interface Outbox {
 export const newOutbox = (): Outbox => ({ queued: new Map() });
 
 /** Adds a message; true when it is the session's first, so the caller starts the digest window. */
-export function enqueue(outbox: Outbox, sessionID: string, text: string, wake: boolean, alert: boolean): boolean {
+export function enqueue(outbox: Outbox, sessionID: string, text: string, wake: boolean): boolean {
   const existing = outbox.queued.get(sessionID);
-  const entry = existing ?? { messages: [], wake: false, alert: [], attempts: 0 };
+  const entry = existing ?? { messages: [], wake: false, attempts: 0 };
   entry.messages.push(text);
   entry.wake ||= wake;
-  if (alert) entry.alert.push(text);
   outbox.queued.set(sessionID, entry);
   return existing === undefined;
 }
@@ -65,7 +63,6 @@ export async function flushOutbox(outbox: Outbox, sessionID: string, timeoutMs: 
     outbox.queued.set(sessionID, {
       messages: [...entry.messages, ...(later?.messages ?? [])],
       wake: entry.wake || (later?.wake ?? false),
-      alert: [...entry.alert, ...(later?.alert ?? [])],
       attempts,
     });
     return "retry";

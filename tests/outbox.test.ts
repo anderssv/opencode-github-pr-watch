@@ -12,8 +12,8 @@ describe("outbox: messages survive a reload between queueing and sending", () =>
     const old = recorder();
     const fresh = recorder();
     registerDeliverer(outbox, Symbol("old"), old.deliver);
-    expect(enqueue(outbox, "s1", "a#1: checks passed", false, true)).toBe(true);
-    expect(enqueue(outbox, "s1", "a#2: progress", false, false)).toBe(false);
+    expect(enqueue(outbox, "s1", "a#1: checks passed", false)).toBe(true);
+    expect(enqueue(outbox, "s1", "a#2: progress", false)).toBe(false);
     registerDeliverer(outbox, Symbol("new"), fresh.deliver);
     expect(await flushOutbox(outbox, "s1", 1000)).toBe("delivered");
     expect(old.sent).toEqual([]);
@@ -33,16 +33,16 @@ describe("outbox: messages survive a reload between queueing and sending", () =>
   test("a delivery that hangs times out and is kept for another try, with what came meanwhile", async () => {
     const outbox = newOutbox();
     registerDeliverer(outbox, Symbol("dead"), () => new Promise<void>(() => {}));
-    enqueue(outbox, "s1", "a#1: checks passed", false, true);
+    enqueue(outbox, "s1", "a#1: checks passed", false);
     const flushing = flushOutbox(outbox, "s1", 20);
-    enqueue(outbox, "s1", "a#1: approved", true, true);
+    enqueue(outbox, "s1", "a#1: approved", true);
     expect(await flushing).toBe("retry");
-    expect(outbox.queued.get("s1")).toEqual({ messages: ["a#1: checks passed", "a#1: approved"], wake: true, alert: ["a#1: checks passed", "a#1: approved"], attempts: 1 });
+    expect(outbox.queued.get("s1")).toEqual({ messages: ["a#1: checks passed", "a#1: approved"], wake: true, attempts: 1 });
   });
 
   test("no live instance: kept; after the last attempt it fails", async () => {
     const outbox = newOutbox();
-    enqueue(outbox, "s1", "a#1: x", false, false);
+    enqueue(outbox, "s1", "a#1: x", false);
     expect(await flushOutbox(outbox, "s1", 20)).toBe("retry");
     expect(await flushOutbox(outbox, "s1", 20)).toBe("retry");
     await expect(flushOutbox(outbox, "s1", 20)).rejects.toThrow("no live plugin instance");

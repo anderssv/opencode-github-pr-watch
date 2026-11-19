@@ -87,8 +87,8 @@ export interface WatchPorts {
   session(sessionID: string): Promise<SessionView>;
   catalog(): Promise<CatalogModel[]>;
   judge(model: ModelRef, directory: string, prompt: string): Promise<string>;
-  /** wake: the agent is woken to act on it; otherwise it only informs. alert: also a desktop notification (defaults to wake). */
-  notify(sessionID: string, text: string, wake?: boolean, alert?: boolean): Promise<void>;
+  /** wake: the agent is woken to act on it; otherwise it only informs. */
+  notify(sessionID: string, text: string, wake?: boolean): Promise<void>;
   /** Reads the failure's error lines and asks the (guarded) model for a diagnosis. */
   diagnose?(model: ModelRef, watch: Watch, facts: PrFacts): Promise<Diagnosis | undefined>;
   /** Records one more occurrence of a failure and returns how often it was seen before, across watches. */
@@ -176,10 +176,10 @@ export async function tick(watch: Watch, ports: WatchPorts, settings: WatchSetti
   try {
     // Every message is checked against a fresh read first: a replaced watch never speaks, and a message the live
     // state no longer supports (for example "ready for merge" after the PR merged) is dropped for the next check.
-    const say = async (message: string, wake = false, alert = wake) => {
+    const say = async (message: string, wake = false) => {
       await gate();
-      log("notify", { text: message, wake, alert });
-      await tolerate(debugOf(ports), "notify", ports.notify(watch.sessionID, `${watch.id}: ${message}`, wake, alert), undefined, { id: watch.id });
+      log("notify", { text: message, wake });
+      await tolerate(debugOf(ports), "notify", ports.notify(watch.sessionID, `${watch.id}: ${message}`, wake), undefined, { id: watch.id });
     };
     const result = await tickInner(watch, ports, settings, (f) => (usedFacts = f), say);
     log("result", { stop: result.stop, delayMs: result.delayMs, ...(result.follow !== undefined ? { follow: result.follow } : {}) });
@@ -192,7 +192,7 @@ export async function tick(watch: Watch, ports: WatchPorts, settings: WatchSetti
   }
 }
 
-async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSettings, use: (f: PrFacts) => void, say: (message: string, wake?: boolean, alert?: boolean) => Promise<void>): Promise<TickResult> {
+async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSettings, use: (f: PrFacts) => void, say: (message: string, wake?: boolean) => Promise<void>): Promise<TickResult> {
   let session: SessionView;
   try {
     session = await ports.session(watch.sessionID);
@@ -355,10 +355,8 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   const nowReady = phase === "ready" && watch.lastFacts !== undefined && nextStep(watch.lastFacts, now) !== "READY";
   if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
   // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
-  // A desktop notification too when someone has to act: the agent, or a person (a review, a run approval, the merge).
   const actor = whoActs(facts, now);
-  const commented = found.some((event) => /^new (review )?comment/.test(event) || event.endsWith("more new comments"));
-  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent", actor === "agent" || actor === "person" || commented);
+  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent");
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
   const track = trackText(progressTrack(facts, now));
@@ -369,7 +367,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   }
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
     const hours = Math.round((now - phaseSince) / 3_600_000);
-    await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review${facts.reviewers?.length ? ` from ${facts.reviewers.join(", ")}` : ""} (${hours} h). ${summary}`, false, false);
+    await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review${facts.reviewers?.length ? ` from ${facts.reviewers.join(", ")}` : ""} (${hours} h). ${summary}`);
     next = { ...next, lastReminderAt: now };
   }
 

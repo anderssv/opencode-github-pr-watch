@@ -35,7 +35,6 @@ All optional:
 "options": {
   "preferences": ["haiku", "mini", "flash"], // which model of the session's provider judges changes
   "maxMinutes": 30,                           // time limit for a build or deploy with too little history
-  "desktopNotifications": true,               // also show messages as macOS notifications
   "debugLog": true                            // JSON-lines log of every decision; false, or a path
 }
 ```
