@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { fileDebugLog, noDebugLog, tolerate, type DebugLog } from "./core/debug-log";
 import { dispatchedRun, findWorkflowDispatches, runFromOutput, type Dispatch } from "./core/dispatch";
 import { parseRunReference, runWatchID } from "./core/run-facts";
-import { attachedRun } from "./core/attached-runs";
+import { attachedRun, alreadyFinished } from "./core/attached-runs";
 import { automaticStartAllowed, dropUnwatched, freshTrigger, isOrphaned, keepExisting, stillWanted, keepConcurrentChanges } from "./core/lifecycle";
 import { PrWatch } from "./rpc";
 import { sessionGroups, watchRows } from "./core/watch-rows";
@@ -753,6 +753,9 @@ export default Plugin.define({
         const repoOfRun = ref.repo ?? (await resolveRepo(runGh, cwd ?? session.directory));
         const target = await tolerate(debug, "the watched PR for the run's branch", watchedPrForRun(repoOfRun, runRef.run, sessionID, cwd ?? session.directory), undefined, { run: runRef.run });
         if (target) {
+          const read = await tolerate(debug, "the run to attach", viewRun(runGhFirst, repoOfRun, runRef.run, cwd ?? session.directory), undefined, { run: runRef.run });
+          const ended = read ? alreadyFinished(attachedRun(read)) : undefined;
+          if (ended) return { message: `${target.id}: ${ended}; nothing left to follow.` };
           // The run belongs to a PR this session watches: follow it there instead of in a row of its own.
           if (!target.runs?.includes(runRef.run)) await ctx.storage.set(KEY_PREFIX + target.id, { ...target, runs: [...(target.runs ?? []), runRef.run] } as never);
           if (target.pinned.directory === directory) schedule(target.id, 0);

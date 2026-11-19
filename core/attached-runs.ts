@@ -54,3 +54,10 @@ export function keptRuns(ids: readonly number[], seen: readonly AttachedRun[]): 
   const finished = new Set(seen.filter((run) => run.state === "SUCCEEDED" || run.state === "FAILED").map((run) => run.run));
   return ids.filter((id) => !finished.has(id));
 }
+
+/** For a run that ended before anyone asked to follow it: how it ended. Undefined while it still has a way to go. */
+export function alreadyFinished(run: AttachedRun): string | undefined {
+  if (run.state === "SUCCEEDED") return `run ${run.workflow} already succeeded (${run.url})`;
+  if (run.state === "FAILED") return `run ${run.workflow} already failed (${run.url})${run.failedJobs?.length ? `: ${run.failedJobs.join(", ")}` : ""}`;
+  return undefined;
+}

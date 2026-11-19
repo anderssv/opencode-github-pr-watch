@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { attachedRun, attachedRunEvents, keptRuns, unfinished } from "../core/attached-runs";
+import { alreadyFinished, attachedRun, attachedRunEvents, keptRuns, unfinished } from "../core/attached-runs";
 import { events } from "../core/policy";
 import { watchRows } from "../core/watch-rows";
 import { aFacts, aJob, aRun, aWatch } from "./mothers";
@@ -74,5 +74,17 @@ describe("rows say whose PR it is and where it is, so the panel can list it like
     const watch = aWatch({ lastFacts: undefined });
     const [row] = watchRows([watch], watch.sessionID, 0);
     expect([row!.author, row!.state, row!.draft]).toEqual([undefined, undefined, undefined]);
+  });
+});
+
+describe("alreadyFinished: a run asked to be watched after it ended is answered at once", () => {
+  const run = { run: 9, workflow: "MAIN", url: "https://github.com/o/r/actions/runs/9" };
+  test("how it ended, with its link", () => {
+    expect(alreadyFinished({ ...run, state: "SUCCEEDED" })).toBe("run MAIN already succeeded (https://github.com/o/r/actions/runs/9)");
+    expect(alreadyFinished({ ...run, state: "FAILED", failedJobs: ["Build"] })).toBe("run MAIN already failed (https://github.com/o/r/actions/runs/9): Build");
+  });
+  test("running or waiting: to be followed", () => {
+    expect(alreadyFinished({ ...run, state: "RUNNING" })).toBeUndefined();
+    expect(alreadyFinished({ ...run, state: "WAITING", waitingJobs: ["Prod"] })).toBeUndefined();
   });
 });
