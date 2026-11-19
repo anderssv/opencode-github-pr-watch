@@ -73,6 +73,7 @@ A watch on an open PR starts from one quick read of the PR (its state, review an
 GitHub allows 5,000 REST calls an hour per user, and GraphQL has a budget of its own.
 
 - **PRs checked at the same moment are read in one GraphQL call** (state, review, checks, reviewers, comments), whichever session or folder watches them. Polls line up on the clock, so the watches due together share it.
+- **Unchanged answers are free:** REST reads (runs, jobs, branch rules, workflow files, environments) are asked with the last answer's ETag. GitHub answers "304 Not Modified" when nothing changed, which doesn't count against the budget.
 - **What can't change is read once:** the jobs of a finished run, Terraform job logs. Required checks are kept 10 minutes, the expected deploy and check approvals 6 hours, the runs on a commit 20 seconds (shared by the watches asking). These survive a reload of the plugin.
 - **When REST's budget runs low** (under 1,000 left), background calls are spread over what is left until the reset, keeping 200 for starts and your own `gh` use; the panel says "GitHub budget low … checks are slowed down". At the reserve, checks wait for the reset. REST and GraphQL are paused separately.
 

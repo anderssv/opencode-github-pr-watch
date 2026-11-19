@@ -1,6 +1,7 @@
 import type { PrRead } from "./pr-batch";
 import type { CallCache } from "./call-cache";
 import type { GhPriority } from "./gh-queue";
+import { conditionalGet, isPlainGet, type EtagStore } from "./etag";
 import { budgetText, paceDelay, parseRateLimit } from "./budget";
 import { existsSync } from "node:fs";
 import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-binary";
@@ -59,6 +60,25 @@ const execGh: Gh = (args, cwd) =>
     });
   });
 
+// gh exits non-zero on a 304 and on errors; with -i the answer, headers and all, is still on stdout.
+const execGhRaw: Gh = (args, cwd) =>
+  new Promise((resolve, reject) => {
+    execFile(ghBinary ?? "gh", args, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 60_000, ...(ghEnv ? { env: ghEnv } : {}) }, (err, stdout, stderr) => {
+      if (/^HTTP\/\S+ \d{3}/.test(stdout)) resolve(stdout);
+      else if (err) reject(new Error(ghFailure(err, args, stderr)));
+      else resolve(stdout);
+    });
+  });
+
+const etags = sharedMap<{ etag: string; body: string }>("etags/1");
+
+/** A plain GET is asked with the last answer's ETag; an unchanged answer (304) is free. Anything else as it is. */
+const execConditional: Gh = (args, cwd) =>
+  isPlainGet(args)
+    ? conditionalGet(etags as EtagStore, args.join("\u0000"), (etag) =>
+        execGhRaw(["api", "-i", ...args.slice(1), ...(etag ? ["-H", `If-None-Match: ${etag}`] : [])], cwd))
+    : execGh(args, cwd);
+
 // While GitHub is rate limiting or can't be reached, every call is refused at once until the shared pause is over.
 // Every call waits its turn in the process's queue.
 // Reading the budget doesn't count against it; read at most once a minute, and only for REST calls.
@@ -96,7 +116,7 @@ const ghCall = (priority: GhPriority): Gh => async (args, cwd) => {
     }
   }
   try {
-    const out = await state.ghQueue.run(priority, () => execGh(args, cwd));
+    const out = await state.ghQueue.run(priority, () => execConditional(args, cwd));
     const health = state[key];
     if (health) {
       debug("github-back", { budget: budgetOf(args), after: health.kind, failures: health.failures });
@@ -231,12 +251,7 @@ export async function prSnapshot(
   let listed: RunView[] = [];
   if (view.mergeCommit) {
     try {
-      listed = JSON.parse(
-        await gh(
-          ["run", "list", "--repo", repo, "--commit", view.mergeCommit.oid, "--json", "databaseId,workflowName,workflowDatabaseId,status,conclusion,event,createdAt,url,attempt"],
-          cwd,
-        ),
-      );
+      listed = await listRuns(gh, repo, `head_sha=${view.mergeCommit.oid}`, cwd);
       const workflowIDs = [...new Set(listed.filter((r) => r.event === "push" && r.workflowDatabaseId !== undefined).map((r) => r.workflowDatabaseId!))];
       // Without a role the workflow is judged from its job names, as before roles existed.
       const roles = new Map(
@@ -473,14 +488,29 @@ async function cachedExpectedDeploy(gh: Gh, repo: string, base: string, cwd: str
 // A run whose jobs have all finished can't change (a rerun counts as a new attempt, read through the run list).
 const jobsOf = (gh: Gh, repo: string, runID: number, cwd: string): Promise<JobView[]> =>
   cached(`jobs:${repo}:${runID}`, (jobs: JobView[]) => (jobs.length > 0 && jobs.every((j) => j.status === "completed") ? 6 * 60 * 60_000 : SHARED_MS), async () => {
-    const { jobs }: { jobs: JobView[] } = JSON.parse(await gh(["run", "view", String(runID), "--repo", repo, "--json", "jobs"], cwd));
-    return jobs.map(({ name, status, conclusion, startedAt }) => ({ name, status, conclusion, startedAt }));
+    const { jobs } = JSON.parse(await gh(["api", `repos/${repo}/actions/runs/${runID}/jobs?per_page=100`], cwd)) as {
+      jobs: { name: string; status: string; conclusion: string | null; started_at: string }[];
+    };
+    return jobs.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion ?? "", startedAt: job.started_at }));
   });
 
 /** The runs on a commit, shared for a few seconds by the checks that ask for them. */
 const runsOnCommit = (gh: Gh, repo: string, sha: string, cwd: string): Promise<{ databaseId: number; workflowName: string; workflowDatabaseId: number; status: string; event: string }[]> =>
-  cached(`runs:${repo}@${sha}`, SHARED_MS, async () =>
-    JSON.parse(await gh(["run", "list", "--repo", repo, "--commit", sha, "--json", "databaseId,workflowName,workflowDatabaseId,status,event"], cwd)));
+  cached(`runs:${repo}@${sha}`, SHARED_MS, () => listRuns(gh, repo, `head_sha=${sha}`, cwd));
+
+/**
+ * Workflow runs through the REST API rather than `gh run list`, so they can be asked for conditionally (an unchanged
+ * list costs nothing); in `gh run list`'s shape.
+ */
+async function listRuns(gh: Gh, repo: string, query: string, cwd: string, perPage = 100): Promise<(RunView & { workflowDatabaseId: number; attempt?: number })[]> {
+  const { workflow_runs: runs } = JSON.parse(await gh(["api", `repos/${repo}/actions/runs?${query}&per_page=${perPage}`], cwd)) as {
+    workflow_runs: { id: number; name: string; workflow_id: number; status: string; conclusion: string | null; event: string; created_at: string; html_url: string; run_attempt?: number }[];
+  };
+  return runs.map((run) => ({
+    databaseId: run.id, workflowName: run.name, workflowDatabaseId: run.workflow_id, status: run.status, conclusion: run.conclusion ?? "",
+    event: run.event, createdAt: run.created_at, url: run.html_url, ...(run.run_attempt !== undefined ? { attempt: run.run_attempt } : {}),
+  }));
+}
 
 async function failedLogTail(gh: Gh, repo: string, runID: number, cwd: string): Promise<string> {
   try {
@@ -526,13 +556,8 @@ async function runningWorkflows(gh: Gh, repo: string, sha: string | undefined, c
 }
 
 async function runningBaseDeploys(gh: Gh, repo: string, base: string, cwd: string): Promise<RunWithJobs[]> {
-  const listed: RunView[] = await cached(`base-runs:${repo}@${base}`, SHARED_MS, async () =>
-    JSON.parse(
-      await gh(
-        ["run", "list", "--repo", repo, "--branch", base, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,event,createdAt,url"],
-        cwd,
-      ),
-    ));
+  const listed: RunView[] = await cached(`base-runs:${repo}@${base}`, SHARED_MS, () =>
+    listRuns(gh, repo, `branch=${encodeURIComponent(base)}&event=push`, cwd, 20));
   const running = listed.filter((run) => run.status !== "completed");
   return Promise.all(running.map(async (run) => ({ ...run, jobs: await jobsOf(gh, repo, run.databaseId, cwd) })));
 }

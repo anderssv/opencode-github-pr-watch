@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, prComments, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, quickSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
-import { aFacts, aPrView } from "./mothers";
+import { aFacts, aPrView, viaGhRun } from "./mothers";
 const NOW = Date.parse("2026-11-19T10:00:00Z");
 
 describe("parsePrReference", () => {
@@ -47,13 +47,13 @@ describe("runLine", () => {
 });
 
 describe("requiredChecks", () => {
-  const fakeGh = (responses: Record<string, string | Error>): Gh => async (args) => {
+  const fakeGh = (responses: Record<string, string | Error>): Gh => viaGhRun(async (args) => {
     const path = args[1]!;
     const response = responses[path];
     if (response === undefined) throw new Error(`unexpected gh api ${path}`);
     if (response instanceof Error) throw response;
     return response;
-  };
+  });
 
   test("combines branch protection and rulesets, without duplicates", async () => {
     const gh = fakeGh({
@@ -92,7 +92,7 @@ describe("requiredChecks", () => {
 
 describe("prSnapshot: a monorepo merge", () => {
   // A fake gh answering the calls prSnapshot makes: the PR, the runs on the merge commit and each run's jobs.
-  const fakeGh = (): Gh => async (args) => {
+  const fakeGh = (): Gh => viaGhRun(async (args) => {
     if (args[0] === "pr" && args[1] === "view") {
       return JSON.stringify({
         state: "MERGED", isDraft: false, baseRefName: "main", title: "Bump x", url: "https://github.com/o/r/pull/1",
@@ -110,7 +110,7 @@ describe("prSnapshot: a monorepo merge", () => {
       return JSON.stringify({ jobs: [{ name: "Detect changes", status: "completed", conclusion: "success" }, { name: "DEPLOY - Prod", status: "completed", conclusion: "skipped" }] });
     }
     return "[]";
-  };
+  });
 
   test("with a batched PR read: no gh pr view, and the comments come from it", async () => {
     const plain = fakeGh();
@@ -132,7 +132,7 @@ describe("prSnapshot: a monorepo merge", () => {
 });
 
 describe("prSnapshot: a merge in a repo where nothing a merge starts deploys", () => {
-  const fakeGh = (workflowFile: string): Gh => async (args) => {
+  const fakeGh = (workflowFile: string): Gh => viaGhRun(async (args) => {
     if (args[0] === "pr" && args[1] === "view") {
       return JSON.stringify({
         state: "MERGED", isDraft: false, baseRefName: "main", title: "Docs", url: "https://github.com/o/r/pull/2",
@@ -148,7 +148,7 @@ describe("prSnapshot: a merge in a repo where nothing a merge starts deploys", (
     }
     if (args[0] === "api" && args[1] === "repos/o/r/contents/.github/workflows/w.yml?ref=main") return workflowFile;
     return "[]";
-  };
+  });
   const justAfter = Date.parse("2026-11-16T13:52:00Z");
 
   test("only workflows that don't start on a merge: no deploy can come, and the model isn't asked", async () => {
@@ -173,7 +173,7 @@ describe("prSnapshot: a merge in a repo where nothing a merge starts deploys", (
 
 describe("laterDeploy: a later run that deployed this merge (plan 1)", () => {
   const failed = { workflowDatabaseId: 7, createdAt: "2026-10-12T10:00:00Z" };
-  const fakeGh = (compare: Record<string, string>, deployJob = "success"): Gh => async (args) => {
+  const fakeGh = (compare: Record<string, string>, deployJob = "success"): Gh => viaGhRun(async (args) => {
     if (args[0] === "run" && args[1] === "list") {
       return JSON.stringify([
         { databaseId: 3, headSha: "newer", createdAt: "2026-10-12T11:00:00Z", url: "https://github.com/o/r/actions/runs/3", displayTitle: "Bump ktor (#2328)" },
@@ -183,7 +183,7 @@ describe("laterDeploy: a later run that deployed this merge (plan 1)", () => {
     if (args[0] === "run" && args[1] === "view") return JSON.stringify({ jobs: [{ name: "DEPLOY - Dev", conclusion: deployJob }] });
     if (args[0] === "api") return compare[args[1]!.split("/compare/")[1]!] ?? "diverged";
     return "";
-  };
+  });
 
   test("a successful later run whose commit contains the merge", async () => {
     const found = await laterDeploy(fakeGh({ "abc...newer": "ahead" }), "o/r", "abc", "main", [failed], "/tmp");
@@ -237,12 +237,12 @@ describe("requiredChecks: a failed read is not 'no required checks'", () => {
 
 describe("prSnapshot: a failed read decides nothing", () => {
   test("runs that can't be read give no facts, instead of 'no deploy started'", async () => {
-    const gh: Gh = async (args) => {
+    const gh: Gh = viaGhRun(async (args) => {
       if (args[0] === "pr") {
         return JSON.stringify({ state: "MERGED", isDraft: false, baseRefName: "main", title: "x", url: "u", reviewDecision: "APPROVED", mergeStateStatus: "UNKNOWN", mergedAt: "2026-11-16T10:00:00Z", mergeCommit: { oid: "abc" }, statusCheckRollup: [] });
       }
       throw new Error("HTTP 502: Bad Gateway");
-    };
+    });
     const snapshot = await prSnapshot(gh, "o/r", 1, "/tmp", Date.parse("2026-11-16T11:00:00Z"));
     expect(snapshot.facts).toBeUndefined();
     expect(snapshot.text).toContain("Could not read the workflow runs: HTTP 502");
@@ -250,7 +250,7 @@ describe("prSnapshot: a failed read decides nothing", () => {
 });
 
 describe("blockedChecks: the PR's check runs queued behind runs waiting for run approval (infra#752)", () => {
-  const fakeGh: Gh = async (args) => {
+  const fakeGh: Gh = viaGhRun(async (args) => {
     const joined = args.join(" ");
     if (joined.includes("--commit head")) {
       return JSON.stringify([
@@ -265,7 +265,7 @@ describe("blockedChecks: the PR's check runs queued behind runs waiting for run 
     }
     if (joined.includes("--status waiting")) return "[]";
     return "[]";
-  };
+  });
 
   test("each queued run with no jobs, and the older run waiting ahead of it", async () => {
     expect(await blockedChecks(fakeGh, "o/r", "head", "/tmp")).toEqual([
@@ -275,7 +275,7 @@ describe("blockedChecks: the PR's check runs queued behind runs waiting for run 
 });
 
 describe("mergeWorkflows: the workflows a merge into the base branch can start", () => {
-  const gh = (files: Record<string, string | Error>): Gh => async (args) => {
+  const gh = (files: Record<string, string | Error>): Gh => viaGhRun(async (args) => {
     const path = args[1]!;
     if (path === "repos/acme/docs/actions/workflows") {
       return JSON.stringify({
@@ -291,7 +291,7 @@ describe("mergeWorkflows: the workflows a merge into the base branch can start",
     if (file === undefined) throw new Error(`unexpected gh api ${path}`);
     if (file instanceof Error) throw file;
     return file;
-  };
+  });
   const issues = "on:\n  issues:\n    types: [opened]\njobs: {}\n";
   const push = "on:\n  push:\n    branches: [main]\njobs: {}\n";
 
@@ -325,7 +325,7 @@ describe("mergeWorkflows: the workflows a merge into the base branch can start",
 });
 
 describe("expectedDeploy: what a merge into the base branch will deploy", () => {
-  const gh = (): Gh => async (args) => {
+  const gh = (): Gh => viaGhRun(async (args) => {
     const path = args[1] ?? "";
     if (args[0] === "api" && path === "repos/o/r/actions/workflows") {
       return JSON.stringify({ workflows: [{ id: 1, path: ".github/workflows/lint.yml", state: "active" }, { id: 2, path: ".github/workflows/deploy.yml", state: "active" }] });
@@ -341,7 +341,7 @@ describe("expectedDeploy: what a merge into the base branch will deploy", () => 
       return JSON.stringify({ jobs: [{ name: "Build", conclusion: "success" }, { name: "Deploy dev", conclusion: "success" }, { name: "Notify", conclusion: "skipped" }, { name: "Deploy prod", conclusion: "success" }] });
     }
     throw new Error(`unexpected gh ${args.join(" ")}`);
-  };
+  });
   const roles = async (id: number) => (id === 2 ? ("deploy" as const) : ("other" as const));
 
   test("the deploy workflows' jobs from their last successful run, and the environments that need approval", async () => {
@@ -354,7 +354,7 @@ describe("expectedDeploy: what a merge into the base branch will deploy", () => 
 });
 
 describe("expectedChecksApproval: environments the PR's own workflows deploy to that need approval", () => {
-  const gh: Gh = async (args) => {
+  const gh: Gh = viaGhRun(async (args) => {
     const path = args[1] ?? "";
     if (path === "repos/o/r/actions/workflows") {
       return JSON.stringify({ workflows: [{ id: 1, path: ".github/workflows/plan.yml", state: "active" }, { id: 2, path: ".github/workflows/apply.yml", state: "active" }, { id: 3, path: "dynamic/x", state: "active" }] });
@@ -364,7 +364,7 @@ describe("expectedChecksApproval: environments the PR's own workflows deploy to 
     if (path === "repos/o/r/environments/dev") return JSON.stringify({ protection_rules: [] });
     if (path === "repos/o/r/environments/prod-plan") return JSON.stringify({ protection_rules: [{ type: "required_reviewers" }] });
     throw new Error(`unexpected gh ${args.join(" ")}`);
-  };
+  });
 
   test("only the workflows a pull request starts, only protected environments", async () => {
     expect(await expectedChecksApproval(gh, "o/r", "main", "/w")).toEqual(["prod-plan"]);
@@ -372,7 +372,7 @@ describe("expectedChecksApproval: environments the PR's own workflows deploy to 
 });
 
 describe("expectedChecksApproval: environments set by an expression are left to the model", () => {
-  const gh: Gh = async (args) => {
+  const gh: Gh = viaGhRun(async (args) => {
     const path = args[1] ?? "";
     if (path === "repos/o/r/actions/workflows") return JSON.stringify({ workflows: [{ id: 1, path: ".github/workflows/tf.yml", state: "active" }] });
     if (path === "repos/o/r/contents/.github/workflows/tf.yml?ref=main") {
@@ -381,7 +381,7 @@ describe("expectedChecksApproval: environments set by an expression are left to 
     if (path === "repos/o/r/environments") return JSON.stringify({ environments: [{ name: "prod" }, { name: "dev" }] });
     if (path === "repos/o/r/environments/prod") return JSON.stringify({ protection_rules: [{ type: "required_reviewers" }] });
     throw new Error(`unexpected gh ${args.join(" ")}`);
-  };
+  });
 
   test("the model's names, kept only when the repo has such an environment, then checked for approval", async () => {
     const asked: string[] = [];
@@ -397,10 +397,10 @@ describe("expectedChecksApproval: environments set by an expression are left to 
 
 describe("prComments: who commented and how many threads are unresolved, in one call", () => {
   test("read from GraphQL", async () => {
-    const gh: Gh = async (args) => {
+    const gh: Gh = viaGhRun(async (args) => {
       expect(args.slice(0, 2)).toEqual(["api", "graphql"]);
       return JSON.stringify({ data: { viewer: { login: "me" }, repository: { pullRequest: { comments: { nodes: [] }, reviewThreads: { nodes: [{ isResolved: false, path: "a.ts", comments: { nodes: [] } }, { isResolved: true, path: "b.ts", comments: { nodes: [] } }] } } } } });
-    };
+    });
     expect((await prComments(gh, "o/r", 7, "/w")).unresolvedThreads).toBe(1);
   });
 });
@@ -408,10 +408,10 @@ describe("prComments: who commented and how many threads are unresolved, in one 
 
 describe("branchPr: the open PR for a branch", () => {
   test("its number, or none", async () => {
-    const gh = (out: string): Gh => async (args) => {
+    const gh = (out: string): Gh => viaGhRun(async (args) => {
       expect(args).toContain("--head");
       return out;
-    };
+    });
     expect(await branchPr(gh('[{"number":82}]'), "o/r", "fix", "/w")).toBe(82);
     expect(await branchPr(gh("[]"), "o/r", "main", "/w")).toBeUndefined();
   });
@@ -444,12 +444,12 @@ describe("prSnapshot: details that couldn't be read keep their last value, so a 
     terraformPlans: [{ job: "Plan", summary: "1 to change" }],
     expectedDeploy: { jobs: ["Deploy"], approval: [] },
   });
-  const limited: Gh = async (args) => {
+  const limited: Gh = viaGhRun(async (args) => {
     if (args[0] === "api" && String(args[1]).startsWith("repos/o/r/branches")) return "{}";
     if (args[0] === "api" && String(args[1]).startsWith("repos/o/r/rules")) return "[]";
     if (args[0] === "run" && args[1] === "list") return "[]";
     throw new Error("gh: API rate limit exceeded");
-  };
+  });
   const snapshot = (prev?: typeof previous) =>
     prSnapshot(limited, "o/r", 1, "/tmp", NOW, async () => "deploy", false, undefined, async () => ({ view: open, comments }), prev);
 

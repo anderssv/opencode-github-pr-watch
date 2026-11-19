@@ -1,3 +1,4 @@
+import type { Gh } from "../core/github";
 import type { DebugLog } from "../core/debug-log";
 import type { CatalogModel, JudgeModelInput, ModelRef, SessionView } from "../core/model-guard";
 import type { Diagnosis } from "../core/advice";
@@ -180,3 +181,35 @@ export const aFacts = (overrides: Partial<PrFacts> = {}): PrFacts => ({
 });
 
 export const aSnapshot = (text: string, facts?: Partial<PrFacts>): Snapshot => (facts ? { text, facts: aFacts(facts) } : { text });
+
+/**
+ * Lets a fake written for `gh run list` / `gh run view --json jobs` answer the REST calls the plugin now makes for
+ * them (asked conditionally), converting the answers to and from gh's shape.
+ */
+export const viaGhRun = (gh: Gh): Gh => async (args, cwd) => {
+  const path = args[0] === "api" ? (args[1] ?? "") : "";
+  const runs = path.match(/^repos\/([^/]+\/[^/]+)\/actions\/runs\?(.*)$/);
+  if (runs) {
+    const query = new URLSearchParams(runs[2]);
+    const legacy = [
+      "run", "list", "--repo", runs[1]!,
+      ...(query.get("head_sha") ? ["--commit", query.get("head_sha")!] : []),
+      ...(query.get("branch") ? ["--branch", query.get("branch")!] : []),
+      ...(query.get("event") ? ["--event", query.get("event")!] : []),
+      "--json", "databaseId,workflowName,workflowDatabaseId,status,conclusion,event,createdAt,url,attempt",
+    ];
+    const listed = JSON.parse(await gh(legacy, cwd)) as Record<string, any>[];
+    return JSON.stringify({
+      workflow_runs: (Array.isArray(listed) ? listed : []).map((r) => ({
+        id: r.databaseId, name: r.workflowName, workflow_id: r.workflowDatabaseId, status: r.status, conclusion: r.conclusion || null,
+        event: r.event, created_at: r.createdAt, html_url: r.url, run_attempt: r.attempt,
+      })),
+    });
+  }
+  const jobs = path.match(/^repos\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/jobs/);
+  if (jobs) {
+    const viewed = JSON.parse(await gh(["run", "view", jobs[2]!, "--repo", jobs[1]!, "--json", "jobs"], cwd)) as { jobs?: Record<string, any>[] };
+    return JSON.stringify({ jobs: (viewed.jobs ?? []).map((j) => ({ name: j.name, status: j.status, conclusion: j.conclusion || null, started_at: j.startedAt })) });
+  }
+  return gh(args, cwd);
+};
