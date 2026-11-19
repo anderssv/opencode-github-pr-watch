@@ -11,6 +11,7 @@ import { lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
 import { STAGE_MARKS as STAGE_MARK, type Stage, type StageState } from "../core/progress";
+import { COLLAPSED_GROUPS_KEY, groupKey, readCollapsed, toggleCollapsed } from "../core/collapsed-groups";
 import { HIDDEN_BUTTONS_KEY, ROW_BUTTONS, readHiddenButtons, toggleButton, type RowButton } from "../core/row-buttons";
 
 interface Row {
@@ -68,6 +69,12 @@ export default Plugin.define({
   setup(ctx) {
     // Shared by the pill and the PRs tab, so hiding a button applies to every line.
     const [hiddenButtons, setHiddenButtons] = createSignal<readonly RowButton[]>(readHiddenButtons(localStorage.getItem(HIDDEN_BUTTONS_KEY)));
+    const [collapsed, setCollapsed] = createSignal<readonly string[]>(readCollapsed(localStorage.getItem(COLLAPSED_GROUPS_KEY)));
+    const toggleGroup = (key: string) => {
+      const next = toggleCollapsed(collapsed(), key);
+      setCollapsed(next);
+      localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(next));
+    };
     const shown = (button: RowButton) => !hiddenButtons().includes(button);
     const setButtonShown = (button: RowButton, show: boolean) => {
       const next = toggleButton(hiddenButtons(), button, show);
@@ -366,6 +373,8 @@ export default Plugin.define({
         <Index each={groups.groups}>
           {(group, index) => {
             const slash = () => (group().kind === "repo" ? group().name.indexOf("/") : -1);
+            const key = () => groupKey(group().kind, group().name, groups.merged);
+            const open = () => !collapsed().includes(key());
             return (
               <section
                 style={{
@@ -374,10 +383,21 @@ export default Plugin.define({
                 }}
               >
                 <div style={{ display: "flex", "align-items": "center", gap: "6px", "min-width": "0" }}>
-                  <ctx.ui.Icon name={group().kind === "repo" ? "folder" : group().kind === "topic" ? "bullet-list" : "checklist"} size="small" />
-                  <div style={{ flex: "1", "min-width": "0", "overflow-wrap": "anywhere" }}>
-                    <span style={{ opacity: "0.6" }}>{group().name.slice(0, slash() + 1)}</span>
-                    <span style={{ "font-weight": "600" }}>{group().name.slice(slash() + 1)}</span>
+                  <div
+                    role="button"
+                    tabindex="0"
+                    aria-expanded={open()}
+                    title={open() ? "Collapse this group" : "Expand this group"}
+                    onClick={() => toggleGroup(key())}
+                    onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), toggleGroup(key()))}
+                    style={{ flex: "1", "min-width": "0", display: "flex", "align-items": "center", gap: "6px", cursor: "pointer" }}
+                  >
+                    <span style={{ width: "10px", opacity: "0.6", "font-size": "11px" }}>{open() ? "▾" : "▸"}</span>
+                    <ctx.ui.Icon name={group().kind === "repo" ? "folder" : group().kind === "topic" ? "bullet-list" : "checklist"} size="small" />
+                    <div style={{ flex: "1", "min-width": "0", "overflow-wrap": "anywhere" }}>
+                      <span style={{ opacity: "0.6" }}>{group().name.slice(0, slash() + 1)}</span>
+                      <span style={{ "font-weight": "600" }}>{group().name.slice(slash() + 1)}</span>
+                    </div>
                   </div>
                   <span style={{ opacity: "0.6", "font-size": "12px" }}>{group().prs.length}</span>
                   <TipButton
@@ -387,9 +407,11 @@ export default Plugin.define({
                     onClick={() => void ops.copy(group().name, group().prs)}
                   />
                 </div>
-                <div style={{ display: "flex", "flex-direction": "column", gap: "6px", "padding-left": "22px" }}>
-                  <Index each={group().prs}>{(pr) => <PrLine pr={pr()} merged={groups.merged} />}</Index>
-                </div>
+                <Show when={open()}>
+                  <div style={{ display: "flex", "flex-direction": "column", gap: "6px", "padding-left": "38px" }}>
+                    <Index each={group().prs}>{(pr) => <PrLine pr={pr()} merged={groups.merged} />}</Index>
+                  </div>
+                </Show>
               </section>
             );
           }}
