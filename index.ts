@@ -188,7 +188,7 @@ export default Plugin.define({
         ? runSnapshot(runGh, watch.repo, watch.run, watch.pinned.directory)
         : withAttachedRuns(
             watch,
-            await prSnapshot(runGh, watch.repo, watch.pr, watch.pinned.directory, Date.now(), await roleLookup(watch.repo, watch.pinned.directory, watch.sessionID, watch.pinned), await marksNoDeploy(watch.repo), await guessLookup(watch.pinned.directory, watch.sessionID, watch.pinned), readPr("background")),
+            await prSnapshot(runGh, watch.repo, watch.pr, watch.pinned.directory, Date.now(), await roleLookup(watch.repo, watch.pinned.directory, watch.sessionID, watch.pinned), await marksNoDeploy(watch.repo), await guessLookup(watch.pinned.directory, watch.sessionID, watch.pinned), readPr("background"), watch.lastFacts),
           );
     // Runs on the PR's branch followed in its watch. Only their state goes into the text: every finished job would
     // otherwise be a change for the model to judge. A run that can't be read is left out this time and stays attached.

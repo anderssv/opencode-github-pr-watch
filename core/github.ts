@@ -209,6 +209,8 @@ export async function prSnapshot(
   noDeploy = false,
   guessEnvironments?: EnvironmentGuess,
   readPr?: ReadPr,
+  /** The facts from the last check, whose details stand in for those that can't be read this time. */
+  previous?: PrFacts,
 ): Promise<Snapshot> {
   let view: PrView;
   let batchedComments: CommentRead | undefined;
@@ -281,15 +283,21 @@ export async function prSnapshot(
     if (blocked.length > 0) facts = { ...facts, blockedChecks: blocked };
   }
   if (view.state === "OPEN") {
-    const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
+    // A detail that couldn't be read this time keeps its value from the last check of the same commit; leaving it out
+    // would look like a change (and come back as one), which the model then reports.
+    const same = previous !== undefined && previous.headSha === view.headRefOid;
+    const read_ = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
+    const plans = !read_.complete && same && previous.terraformPlans ? previous.terraformPlans : read_.plans;
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
     // Only for the line's icon: never part of the text, so a new comment doesn't wake the model.
     const read = batchedComments ?? (await tolerate(debug, "comments", prComments(gh, repo, pr, cwd), undefined, { repo, pr }));
     if (read) facts = { ...facts, unresolvedThreads: read.unresolvedThreads, commentIds: read.commentIds, comments: read.comments };
-    const checksApproval = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), [], { repo, pr });
+    const approvalRead = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), undefined, { repo, pr });
+    const checksApproval = approvalRead ?? (same ? previous.expectedChecksApproval : undefined) ?? [];
     if (checksApproval.length > 0) facts = { ...facts, expectedChecksApproval: checksApproval };
     if (roleOf) {
-      const expected = await tolerate(debug, "expected deploy", cachedExpectedDeploy(gh, repo, view.baseRefName, cwd, roleOf, now), undefined, { repo, pr });
+      const expectedRead = await tolerate(debug, "expected deploy", cachedExpectedDeploy(gh, repo, view.baseRefName, cwd, roleOf, now).then((expected) => ({ expected })), undefined, { repo, pr });
+      const expected = expectedRead ? expectedRead.expected : same ? previous.expectedDeploy : undefined;
       if (expected) facts = { ...facts, expectedDeploy: expected };
     }
   }
@@ -747,8 +755,9 @@ export async function blockingRun(gh: Gh, repo: string, queued: { databaseId: nu
 const planCache = sharedMap<string | null>("plans/1");
 
 /** Terraform plan summaries from the PR's finished jobs; each job's log is read once. */
-export async function finishedRunPlans(gh: Gh, repo: string, rollup: readonly CheckView[], cwd: string): Promise<TerraformPlan[]> {
+export async function finishedRunPlans(gh: Gh, repo: string, rollup: readonly CheckView[], cwd: string): Promise<{ plans: TerraformPlan[]; complete: boolean }> {
   const plans: TerraformPlan[] = [];
+  let complete = true;
   for (const check of pipelineChecks(rollup)) {
     const job = check.detailsUrl?.match(/\/actions\/runs\/\d+\/job\/(\d+)/)?.[1];
     if (!job || (check.status ?? "").toUpperCase() !== "COMPLETED") continue;
@@ -761,6 +770,7 @@ export async function finishedRunPlans(gh: Gh, repo: string, rollup: readonly Ch
         debug("tolerated-error", { what: "job log for the plan summary", repo, job, error: err });
         // A deleted (410) or missing (404) log stays that way; asking again on every check won't bring it back.
         if (/HTTP 4(04|10)/.test(err instanceof Error ? err.message : String(err))) planCache.set(key, null);
+        else complete = false;
         continue;
       }
       planCache.set(key, planSummary(log) ?? null);
@@ -768,7 +778,7 @@ export async function finishedRunPlans(gh: Gh, repo: string, rollup: readonly Ch
     const summary = planCache.get(key);
     if (summary) plans.push({ job: checkName(check), summary });
   }
-  return plans;
+  return { plans, complete };
 }
 
 const MY_PR_FIELDS = "repository,number,title,url,isDraft,createdAt,closedAt";

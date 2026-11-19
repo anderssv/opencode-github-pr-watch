@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, prComments, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, quickSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
-import { aPrView } from "./mothers";
+import { aFacts, aPrView } from "./mothers";
 const NOW = Date.parse("2026-11-19T10:00:00Z");
 
 describe("parsePrReference", () => {
@@ -430,5 +430,37 @@ describe("quickSnapshot: one call, for starting a watch at once", () => {
   test("merged or closed: none, the full read decides", async () => {
     const gh: Gh = async () => JSON.stringify(aPrView({ state: "MERGED" }));
     expect(await quickSnapshot(gh, "o/r", 7, "/w", NOW)).toBeUndefined();
+  });
+});
+
+describe("prSnapshot: details that couldn't be read keep their last value, so a hiccup isn't reported as a change", () => {
+  const open = aPrView({
+    headRefOid: "abc",
+    statusCheckRollup: [{ name: "Plan", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://github.com/o/r/actions/runs/1/job/77", workflowName: "CI" }],
+  });
+  const comments = { unresolvedThreads: 0, commentIds: [], comments: [] };
+  const previous = aFacts({
+    headSha: "abc",
+    terraformPlans: [{ job: "Plan", summary: "1 to change" }],
+    expectedDeploy: { jobs: ["Deploy"], approval: [] },
+  });
+  const limited: Gh = async (args) => {
+    if (args[0] === "api" && String(args[1]).startsWith("repos/o/r/branches")) return "{}";
+    if (args[0] === "api" && String(args[1]).startsWith("repos/o/r/rules")) return "[]";
+    if (args[0] === "run" && args[1] === "list") return "[]";
+    throw new Error("gh: API rate limit exceeded");
+  };
+  const snapshot = (prev?: typeof previous) =>
+    prSnapshot(limited, "o/r", 1, "/tmp", NOW, async () => "deploy", false, undefined, async () => ({ view: open, comments }), prev);
+
+  test("same commit: the plans and the expected deploy stay, in the facts and the text", async () => {
+    const read = await snapshot(previous);
+    expect(read.facts?.terraformPlans).toEqual([{ job: "Plan", summary: "1 to change" }]);
+    expect(read.facts?.expectedDeploy).toEqual({ jobs: ["Deploy"], approval: [] });
+    expect(read.text).toContain("terraform: Plan 1 to change");
+  });
+
+  test("a new commit: the old plans don't carry over", async () => {
+    expect((await snapshot({ ...previous, headSha: "old" })).facts?.terraformPlans).toBeUndefined();
   });
 });
