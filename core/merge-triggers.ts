@@ -35,7 +35,7 @@ function forBranch(settings: unknown, base: string): boolean {
  * another workflow finishing (a deploy chained after a build). Undefined when the file can't be read, so the caller
  * falls back to waiting for runs to show up.
  */
-export function startsOnMerge(file: string, base: string): boolean | undefined {
+export function startsOnMerge(file: string, base: string, changed?: readonly string[]): boolean | undefined {
   const events = eventsOf(file);
   if (!events) return undefined;
   if ("workflow_run" in events) return true;
@@ -43,14 +43,59 @@ export function startsOnMerge(file: string, base: string): boolean | undefined {
   const push = (events.push ?? {}) as { branches?: unknown; "branches-ignore"?: unknown; tags?: unknown };
   // Only tags given: pushes to branches don't start it.
   if (!list(push.branches) && !list(push["branches-ignore"]) && push.tags !== undefined) return false;
-  return forBranch(push, base);
+  return forBranch(push, base) && forPaths(push, changed);
+}
+
+/**
+ * Whether an event's path filters let the changed files through: `paths` needs one changed file to match, and
+ * `paths-ignore` one changed file not ignored. Without the changed files (or without filters), every change does.
+ */
+function forPaths(settings: unknown, changed: readonly string[] | undefined): boolean {
+  if (!changed) return true;
+  const filters = (settings ?? {}) as { paths?: unknown; "paths-ignore"?: unknown };
+  const paths = list(filters.paths);
+  const ignored = list(filters["paths-ignore"]);
+  if (paths) return changed.some((path) => pathSelected(paths, path));
+  if (ignored) return changed.some((path) => !pathSelected(ignored, path));
+  return true;
+}
+
+// Patterns apply in order; a later `!pattern` takes back what an earlier one selected.
+function pathSelected(patterns: readonly string[], path: string): boolean {
+  let selected = false;
+  for (const pattern of patterns) {
+    if (pattern.startsWith("!")) {
+      if (selected && globMatches(pattern.slice(1), path)) selected = false;
+    } else if (globMatches(pattern, path)) selected = true;
+  }
+  return selected;
+}
+
+// GitHub's path globs: `*` within a folder, `**` across folders (`**/` also matches no folder), `?` one character.
+function globMatches(pattern: string, path: string): boolean {
+  let regex = "";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]!;
+    if (c === "*" && pattern[i + 1] === "*") {
+      if (pattern[i + 2] === "/") {
+        regex += "(?:.*/)?";
+        i += 2;
+      } else {
+        regex += ".*";
+        i += 1;
+      }
+    } else if (c === "*") regex += "[^/]*";
+    else if (c === "?") regex += "[^/]";
+    else regex += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${regex}$`).test(path);
 }
 
 /** Whether a pull request into the base branch starts a workflow (`pull_request` or `pull_request_target`). */
-export function startsOnPullRequest(file: string, base: string): boolean | undefined {
+export function startsOnPullRequest(file: string, base: string, changed?: readonly string[]): boolean | undefined {
   const events = eventsOf(file);
   if (!events) return undefined;
-  return ["pull_request", "pull_request_target"].some((event) => event in events && forBranch(events[event], base));
+  return ["pull_request", "pull_request_target"].some((event) => event in events && forBranch(events[event], base) && forPaths(events[event], changed));
 }
 
 // GitHub's branch filters: `*` matches within a path segment, `**` across them. Negated patterns (`!x`) are left out.

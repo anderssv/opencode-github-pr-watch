@@ -142,7 +142,7 @@ describe("phaseOf: a watch follows the PR until it is done", () => {
 describe("endReason", () => {
   test("merged in a repo where nothing a merge starts deploys: says so", () => {
     expect(end(aFacts({ state: "MERGED", mergedAt: NOW - 60_000, deploy: "NO_RUNS", deployPossible: false }))).toContain(
-      "merged; nothing that starts on a merge deploys in this repo",
+      "merged; nothing this change starts on a merge deploys (the deploy workflows don't run for these files or branch)",
     );
   });
 

@@ -83,3 +83,29 @@ describe("startsOnPullRequest: does a pull request into the base branch start th
     expect(startsOnPullRequest("on: [pull\n", "main")).toBeUndefined();
   });
 });
+
+describe("startsOnMerge with the PR's changed files: path filters", () => {
+  const terraform = "on:\n  push:\n    branches: [main]\n    paths:\n      - terraform/**\n      - .github/workflows/run-terraform.yml\n";
+  const notDocs = "on:\n  push:\n    branches: [main]\n    paths-ignore:\n      - docs/**\n      - '**/*.md'\n";
+
+  test("paths: starts only when a changed file matches", () => {
+    expect(startsOnMerge(terraform, "main", ["docs/plan.md"])).toBe(false);
+    expect(startsOnMerge(terraform, "main", ["docs/plan.md", "terraform/env/prod/main.tf"])).toBe(true);
+    expect(startsOnMerge(terraform, "main", [".github/workflows/run-terraform.yml"])).toBe(true);
+  });
+
+  test("paths-ignore: starts when a changed file isn't ignored; ** matches no folder too", () => {
+    expect(startsOnMerge(notDocs, "main", ["docs/plan.md", "README.md"])).toBe(false);
+    expect(startsOnMerge(notDocs, "main", ["README.md", "src/app.kt"])).toBe(true);
+  });
+
+  test("! patterns exclude in order", () => {
+    const file = "on:\n  push:\n    paths:\n      - 'src/**'\n      - '!src/**/*.md'\n";
+    expect(startsOnMerge(file, "main", ["src/notes.md"])).toBe(false);
+    expect(startsOnMerge(file, "main", ["src/app.kt"])).toBe(true);
+  });
+
+  test("without the changed files, path filters are left alone", () => {
+    expect(startsOnMerge(terraform, "main")).toBe(true);
+  });
+});

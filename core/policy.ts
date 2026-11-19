@@ -144,7 +144,7 @@ export function phaseOf(facts: PrFacts, now: number): { phase: Phase } | { end: 
     case "CLOSED": return { end: "closed without merging" };
     case "DEPLOYED": return { end: facts.standaloneRun ? "the run succeeded" : facts.deployedBy ? deployedByText(facts.deployedBy) : "deployed (merge pipeline succeeded)" };
     case "NO_DEPLOY":
-      return { end: facts.deployPossible === false ? "merged; nothing that starts on a merge deploys in this repo" : "merged, and no deploy started for the merge commit" };
+      return { end: facts.deployPossible === false ? "merged; nothing this change starts on a merge deploys (the deploy workflows don't run for these files or branch)" : "merged, and no deploy started for the merge commit" };
     case "NOTHING_TO_DEPLOY": return { end: "merged; nothing to deploy (no deploy job ran for this change)" };
   }
 }

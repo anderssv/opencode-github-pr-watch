@@ -285,7 +285,8 @@ export async function prSnapshot(
   let facts = factsFrom(view, runs, now, required, rerunning, baseRuns, { noDeploy });
   // Merged without deploy runs: if nothing a merge starts can deploy, there's nothing to wait for.
   if (view.state === "MERGED" && !noDeploy && (facts.deploy === "NO_RUNS" || facts.deploy === "UNIDENTIFIED")) {
-    const ids = await tolerate(debug, "workflows a merge starts", mergeWorkflows(gh, repo, view.baseRefName, cwd), undefined, { repo, pr });
+    const changed = await tolerate(debug, "changed files", prChangedFiles(gh, repo, pr, cwd), undefined, { repo, pr });
+    const ids = await tolerate(debug, "workflows a merge starts", mergeWorkflows(gh, repo, view.baseRefName, cwd, changed), undefined, { repo, pr });
     if (ids) {
       const roles = await Promise.all(ids.map((id) => tolerate(debug, "workflow role", roleOf?.(id), undefined, { repo, workflow: id })));
       const possible = deployPossible(roles);
@@ -307,11 +308,12 @@ export async function prSnapshot(
     // Only for the line's icon: never part of the text, so a new comment doesn't wake the model.
     const read = batchedComments ?? (await tolerate(debug, "comments", prComments(gh, repo, pr, cwd), undefined, { repo, pr }));
     if (read) facts = { ...facts, unresolvedThreads: read.unresolvedThreads, commentIds: read.commentIds, comments: read.comments };
-    const approvalRead = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), undefined, { repo, pr });
+    const changedOpen = await tolerate(debug, "changed files", prChangedFiles(gh, repo, pr, cwd), undefined, { repo, pr });
+    const approvalRead = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments, changedOpen), undefined, { repo, pr });
     const checksApproval = approvalRead ?? (same ? previous.expectedChecksApproval : undefined) ?? [];
     if (checksApproval.length > 0) facts = { ...facts, expectedChecksApproval: checksApproval };
     if (roleOf) {
-      const expectedRead = await tolerate(debug, "expected deploy", cachedExpectedDeploy(gh, repo, view.baseRefName, cwd, roleOf, now).then((expected) => ({ expected })), undefined, { repo, pr });
+      const expectedRead = await tolerate(debug, "expected deploy", cachedExpectedDeploy(gh, repo, view.baseRefName, cwd, roleOf, now, changedOpen).then((expected) => ({ expected })), undefined, { repo, pr });
       const expected = expectedRead ? expectedRead.expected : same ? previous.expectedDeploy : undefined;
       if (expected) facts = { ...facts, expectedDeploy: expected };
     }
@@ -389,8 +391,8 @@ export interface ExpectedDeploy {
  * ones left out), and the environments they deploy to that need a reviewer's approval. Undefined when nothing deploys.
  * Which workflows deploy is the model's judgement (roleOf); `complete` is false while a role is still unknown.
  */
-async function readExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup): Promise<{ expected?: ExpectedDeploy; complete: boolean }> {
-  const ids = await mergeWorkflows(gh, repo, base, cwd);
+async function readExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup, changed?: readonly string[]): Promise<{ expected?: ExpectedDeploy; complete: boolean }> {
+  const ids = await mergeWorkflows(gh, repo, base, cwd, changed);
   if (!ids) return { complete: false };
   const roles = await Promise.all(ids.map((id) => tolerate(debug, "workflow role", roleOf(id), undefined, { repo, workflow: id })));
   const complete = !roles.includes(undefined);
@@ -432,14 +434,14 @@ const ENV_EXPRESSION = /environment:\s*['"]?\$\{\{/;
  * Names in the file are read as they are; names set by an expression come from the model, and only those the repo
  * really has count. `complete` is false when a model answer was needed and not given.
  */
-async function readChecksApproval(gh: Gh, repo: string, base: string, cwd: string, guess?: EnvironmentGuess): Promise<{ approval: string[]; complete: boolean }> {
+async function readChecksApproval(gh: Gh, repo: string, base: string, cwd: string, guess?: EnvironmentGuess, changed?: readonly string[]): Promise<{ approval: string[]; complete: boolean }> {
   const { workflows } = JSON.parse(await gh(["api", `repos/${repo}/actions/workflows`], cwd)) as { workflows: { id: number; path: string; state: string }[] };
   const environments: string[] = [];
   let complete = true;
   let known: Set<string> | undefined;
   for (const w of workflows.filter((w) => w.state === "active" && w.path.startsWith(".github/"))) {
     const file = await tolerate(debug, "workflow file", gh(["api", `repos/${repo}/contents/${w.path}?ref=${encodeURIComponent(base)}`, "-H", "Accept: application/vnd.github.raw"], cwd), undefined, { repo, path: w.path });
-    if (!file || !startsOnPullRequest(file, base)) continue;
+    if (!file || !startsOnPullRequest(file, base, changed)) continue;
     environments.push(...workflowEnvironments(file));
     if (!ENV_EXPRESSION.test(file)) continue;
     const guessed = guess ? await tolerate(debug, "environments of a workflow", guess(file, base), undefined, { repo, path: w.path }) : undefined;
@@ -458,11 +460,11 @@ export async function expectedChecksApproval(gh: Gh, repo: string, base: string,
 }
 
 const checksApprovals = sharedMap<{ until: number; approval: string[] }>("checks-approvals/2");
-async function cachedChecksApproval(gh: Gh, repo: string, base: string, cwd: string, now: number, guess?: EnvironmentGuess): Promise<string[]> {
-  const key = `${repo}@${base}`;
+async function cachedChecksApproval(gh: Gh, repo: string, base: string, cwd: string, now: number, guess?: EnvironmentGuess, changed?: readonly string[]): Promise<string[]> {
+  const key = `${repo}@${base}${changedKey(changed)}`;
   const kept = checksApprovals.get(key);
   if (kept && now < kept.until) return kept.approval;
-  const read = await readChecksApproval(gh, repo, base, cwd, guess);
+  const read = await readChecksApproval(gh, repo, base, cwd, guess, changed);
   checksApprovals.set(key, { until: now + (read.complete ? EXPECTED_FOR_MS : INCOMPLETE_FOR_MS), approval: read.approval });
   return read.approval;
 }
@@ -471,16 +473,29 @@ export async function expectedDeploy(gh: Gh, repo: string, base: string, cwd: st
   return (await readExpectedDeploy(gh, repo, base, cwd, roleOf)).expected;
 }
 
+// Which workflows start depends on the PR's changed files (path filters), so they are part of the key.
+const changedKey = (changed?: readonly string[]) => (changed ? `#${[...changed].sort().join("\n")}` : "");
+
+/**
+ * The files a PR changes, for the workflows' path filters. Undefined when there may be more than one page (GitHub
+ * lists at most 3,000), so path filters are then left alone rather than judged on part of the list.
+ */
+export async function prChangedFiles(gh: Gh, repo: string, pr: number, cwd: string): Promise<string[] | undefined> {
+  const files = JSON.parse(await gh(["api", `repos/${repo}/pulls/${pr}/files?per_page=100`], cwd)) as { filename: string; previous_filename?: string }[];
+  if (files.length >= 100) return undefined;
+  return [...new Set(files.flatMap((f) => [f.filename, ...(f.previous_filename ? [f.previous_filename] : [])]))];
+}
+
 // Read once per repo and base branch for six hours; a read with a model answer missing is kept for ten minutes, then
 // asked again (reading every workflow file again on every check spent most of the REST budget).
 const EXPECTED_FOR_MS = 6 * 60 * 60_000;
 const INCOMPLETE_FOR_MS = 10 * 60_000;
 const expectations = sharedMap<{ until: number; expected: ExpectedDeploy | undefined }>("expected-deploys/2");
-async function cachedExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup, now: number): Promise<ExpectedDeploy | undefined> {
-  const key = `${repo}@${base}`;
+async function cachedExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup, now: number, changed?: readonly string[]): Promise<ExpectedDeploy | undefined> {
+  const key = `${repo}@${base}${changedKey(changed)}`;
   const kept = expectations.get(key);
   if (kept && now < kept.until) return kept.expected;
-  const read = await readExpectedDeploy(gh, repo, base, cwd, roleOf);
+  const read = await readExpectedDeploy(gh, repo, base, cwd, roleOf, changed);
   expectations.set(key, { until: now + (read.complete ? EXPECTED_FOR_MS : INCOMPLETE_FOR_MS), expected: read.expected });
   return read.expected;
 }
@@ -710,13 +725,13 @@ async function workflowUsuallyDeploys(gh: Gh, repo: string, workflow: number, cw
  * setups (path "dynamic/...": CodeQL, Pages, Dependabot) are left out: they scan or publish docs, never deploy the
  * service. Undefined when a file can't be read or understood, so the caller keeps waiting for runs as before.
  */
-export async function mergeWorkflows(gh: Gh, repo: string, base: string, cwd: string): Promise<number[] | undefined> {
+export async function mergeWorkflows(gh: Gh, repo: string, base: string, cwd: string, changed?: readonly string[]): Promise<number[] | undefined> {
   const { workflows } = JSON.parse(await gh(["api", `repos/${repo}/actions/workflows`], cwd)) as { workflows: { id: number; path: string; state: string }[] };
   const files = workflows.filter((w) => w.state === "active" && w.path.startsWith(".github/"));
   const starts = await Promise.all(
     files.map(async (w) => {
       const file = await tolerate(debug, "workflow file", gh(["api", `repos/${repo}/contents/${w.path}?ref=${encodeURIComponent(base)}`, "-H", "Accept: application/vnd.github.raw"], cwd), undefined, { repo, path: w.path });
-      return file === undefined ? undefined : startsOnMerge(file, base);
+      return file === undefined ? undefined : startsOnMerge(file, base, changed);
     }),
   );
   if (starts.includes(undefined)) return undefined;
