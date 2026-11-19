@@ -673,14 +673,14 @@ describe("every step change by rule, progress as the track (acme/admin#41)", () 
     const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "old", lastTrackAt: NOW - 120_000, lastTrackVersion: TRACK_VERSION }), ports, settings());
     expect(ports.notifications).toEqual([{ sessionID: "ses_parent", text: expect.stringContaining("progress: Checks … 4/5 · Build · Review · Merge · Deploy"), wake: false }]);
     expect(ports.judged).toHaveLength(1);
-    expect(result.watch.lastTrack).toBe("Checks … 4/5 · Build · Review · Merge · Deploy");
+    expect(result.watch.lastTrack).toBe("Checks running 4/5 · Build · Review upcoming · Merge upcoming · Deploy upcoming");
   });
 
   test("a new track format is noted silently, not sent as progress", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("3 of 5", running)], verdicts: ['{"verdict":"wait"}'] });
     const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running), lastTrack: "PR ✓ · Checks … 3/5 · Scan", lastTrackAt: NOW - 120_000, lastTrackVersion: 0 }), ports, settings());
     expect(ports.notifications).toEqual([]);
-    expect(result.watch.lastTrack).toBe("Checks … 3/5 · Scan · Review · Merge · Deploy");
+    expect(result.watch.lastTrack).toBe("Checks running 3/5 · Scan · Review upcoming · Merge upcoming · Deploy upcoming");
   });
 
   test("at most one progress message a minute; the next check says the latest", async () => {
@@ -694,7 +694,7 @@ describe("every step change by rule, progress as the track (acme/admin#41)", () 
     const ports = fakePorts({ snapshots: [aSnapshot("3 of 5", running)], verdicts: ['{"verdict":"wait"}'] });
     const result = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running) }), ports, settings());
     expect(ports.notifications).toEqual([]);
-    expect(result.watch.lastTrack).toBe("Checks … 3/5 · Scan · Review · Merge · Deploy");
+    expect(result.watch.lastTrack).toBe("Checks running 3/5 · Scan · Review upcoming · Merge upcoming · Deploy upcoming");
   });
 });
 
@@ -814,5 +814,25 @@ describe("a ready PR waiting for someone else's deploy on its base branch", () =
     const out = fakePorts({ snapshots: [aSnapshot("ready", ready)], verdicts: ['{"verdict":"wait"}'] });
     await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: aFacts(waiting) }), out, settings());
     expect(out.notifications[0]!.text).toContain("ready to merge");
+  });
+});
+
+describe("progress is a stage changing state, or a running stage moving on", () => {
+  test("a static detail changing (the expected deploy, reviewers) is not progress", async () => {
+    const before = aFacts({ review: "REVIEW_REQUIRED", expectedDeploy: { jobs: ["A", "B", "C"], approval: [] } });
+    const after = { review: "REVIEW_REQUIRED" as const, expectedDeploy: { jobs: ["A", "B"], approval: [] }, reviewers: ["approvers"] };
+    const ports = fakePorts({ snapshots: [aSnapshot("after", after)], verdicts: ['{"verdict":"wait"}'] });
+    const start = watchStarted({ lastSnapshot: "before", lastFacts: before });
+    const noted = await tick(start, fakePorts({ snapshots: [aSnapshot("before", { review: "REVIEW_REQUIRED", expectedDeploy: { jobs: ["A", "B", "C"], approval: [] } })] }), settings());
+    await tick({ ...noted.watch, lastTrackAt: NOW - 120_000 }, ports, settings());
+    expect(ports.notifications.filter((n) => n.text.startsWith("acme/api#42: progress"))).toEqual([]);
+  });
+
+  test("a running stage moving on is", async () => {
+    const running = { checks: "PENDING" as const, checksProgress: { done: 3, total: 5 } };
+    const ports = fakePorts({ snapshots: [aSnapshot("4 of 5", { ...running, checksProgress: { done: 4, total: 5 } })], verdicts: ['{"verdict":"wait"}'] });
+    const noted = await tick(watchStarted({ lastSnapshot: "3 of 5", lastFacts: aFacts(running) }), fakePorts({ snapshots: [aSnapshot("3 of 5", running)] }), settings());
+    await tick({ ...noted.watch, lastTrackAt: NOW - 120_000 }, ports, settings());
+    expect(ports.notifications.map((n) => n.text).join()).toContain("progress: Checks … 4/5");
   });
 });

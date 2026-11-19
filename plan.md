@@ -2,12 +2,6 @@
 
 Parked work and open questions. What's done is in the git log and in `docs/`.
 
-## To evaluate: shorter progress messages
-
-- **Now:** the whole track goes into the session as a progress message (expected deploy jobs, requested reviewers, run approvals), about 100–150 tokens each. A change to a static detail also counts as progress.
-- **Alternative:** progress counts only when a stage changes state or a running stage's "x/y · job" changes, and the message leaves out the details of waiting and upcoming stages ("Checks ✓ · Review ⏸ · Merge · Deploy"). The panel keeps the full details on hover.
-- **Decide after using the long version for a while:** is it too chatty, and does the agent use the details?
-
 ## Later: model for the single-job stall check
 
 `stuckJobs` reports any job unfinished longer than a fixed `stuckMs`, whatever the pipeline normally takes. Instead, compare the job with its duration in recent successful runs, and only when it's clearly past that, ask the model the same stuck-or-slow question the phase limit uses (`stallPrompt`). Wait until the phase-limit stall check has been seen working live.

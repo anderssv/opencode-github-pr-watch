@@ -6,7 +6,7 @@ import { nextStep, type PrFacts } from "./pr-facts";
  * A run approval shows on the step it holds up: the checks before the merge, the deploy after it.
  */
 /** Raised when the track's wording changes, so watches note the new wording instead of sending it as progress. */
-export const TRACK_VERSION = 2;
+export const TRACK_VERSION = 3;
 
 export type StageState = "done" | "running" | "waiting" | "failed" | "upcoming";
 
@@ -73,5 +73,12 @@ export function progressTrack(facts: PrFacts, now: number): Stage[] {
 export const STAGE_MARKS: Record<StageState, string> = { done: "✓", running: "…", waiting: "⏸", failed: "✗", upcoming: "" };
 
 /** "PR ✓ · Checks ✓ · Review ⏸ waiting for code review · Merge · Deploy" */
+/**
+ * What counts as progress: each stage's state, and what a running stage is doing ("3/5 · Build"). Details of stages
+ * that aren't running (the expected deploy jobs, who is asked to review) change without anything happening on the PR.
+ */
+export const trackKey = (stages: readonly Stage[]): string =>
+  stages.map((s) => [s.name, s.state, s.state === "running" ? s.detail : undefined].filter(Boolean).join(" ")).join(" · ");
+
 export const trackText = (stages: readonly Stage[]): string =>
   stages.map((s) => [s.name, STAGE_MARKS[s.state], s.detail].filter(Boolean).join(" ")).join(" · ");
