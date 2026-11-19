@@ -774,3 +774,15 @@ describe("new comments from collaborators are said, without their text", () => {
     expect(ports.notifications).toEqual([]);
   });
 });
+
+describe("a watch started from the quick read", () => {
+  test("its first full check is the baseline: noted, not reported", async () => {
+    const quick = aFacts({ review: "REVIEW_REQUIRED" });
+    const full = { review: "REVIEW_REQUIRED" as const, required: ["Build"], unresolvedThreads: 2 };
+    const ports = fakePorts({ snapshots: [aSnapshot("full", full)] });
+    const result = await tick(watchStarted({ lastSnapshot: "quick", lastFacts: quick, provisional: true }), ports, settings());
+    expect(ports.notifications).toEqual([]);
+    expect(result.watch.provisional).toBeUndefined();
+    expect(result.watch.lastSnapshot).toBe("full");
+  });
+});

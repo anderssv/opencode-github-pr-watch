@@ -18,7 +18,7 @@ import { Plugin } from "@opencode/plugin";
 import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPrompt, parseBotAdvice, parseDiagnosis, refreshHistory } from "./core/advice";
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
 import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
-import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh } from "./core/github";
+import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst } from "./core/github";
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory, findGitPushes, findPrCreates, prUrlsIn } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
@@ -779,9 +779,12 @@ export default Plugin.define({
         return { message: "" };
       }
       const replaced = Boolean(existing);
-      const snapshot = runRef
-        ? await runSnapshot(runGh, repo, runRef.run, pin.pinned.directory, now)
-        : await prSnapshot(runGh, repo, ref.pr, pin.pinned.directory, now, cachedRoleLookup(repo, pin.pinned.directory, judge.model), await marksNoDeploy(repo), environmentGuess(pin.pinned.directory, judge.model));
+      // An open PR started by hand starts from one quick read; the first full check, right after, fills in the rest.
+      // A trigger (merge, rerun) needs the full read to decide whether there is anything to watch.
+      const quick = !runRef && !trigger ? await quickSnapshot(runGhFirst, repo, ref.pr, pin.pinned.directory, now) : undefined;
+      const snapshot = quick ?? (runRef
+        ? await runSnapshot(runGhFirst, repo, runRef.run, pin.pinned.directory, now)
+        : await prSnapshot(runGhFirst, repo, ref.pr, pin.pinned.directory, now, cachedRoleLookup(repo, pin.pinned.directory, judge.model), await marksNoDeploy(repo), environmentGuess(pin.pinned.directory, judge.model)));
       if (!snapshot.facts) throw new Error(snapshot.text);
       const summary = summaryLine(snapshot.facts, now);
       const decision = startDecision(snapshot.facts, now, trigger ? { trigger } : {});
@@ -799,6 +802,7 @@ export default Plugin.define({
         startedAt: now, lastChangeAt: now, lastCheckedAt: now,
         lastSnapshot: snapshot.text, lastFacts: snapshot.facts,
         ...(batchID ? { batchID } : {}),
+        ...(quick ? { provisional: true } : {}),
         ...(trigger ? { awaiting: { trigger, since: now } } : decision.awaiting ? { awaiting: decision.awaiting } : {}),
         ...(trigger === "update-branch" ? { expectedCommitSince: now } : {}),
         ...phaseFields(snapshot.facts, now),
@@ -809,7 +813,7 @@ export default Plugin.define({
       }
       await ctx.storage.set(KEY_PREFIX + id, watch as never);
       changed(sessionID, id);
-      schedule(id, pollDelay(snapshot.facts, now, watch.awaiting !== undefined));
+      schedule(id, quick ? 0 : pollDelay(snapshot.facts, now, watch.awaiting !== undefined));
       const title = snapshot.text.split("\n")[0]!.replace(/^(PR|Run): /, "").replace(/ \(https:\/\/\S+\)$/, "");
       const prefix = replaced ? "Replaced the earlier watch. " : "";
       return { message: prefix + watchStartedMessage(id, judge.model, summary, startedBy), started: { id, title, facts: snapshot.facts } };
@@ -852,15 +856,18 @@ export default Plugin.define({
       const batchID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const lines: string[] = invalid.map((token) => `Not a PR reference: ${token}`);
       const started: { id: string; title: string; facts: PrFacts }[] = [];
-      for (const ref of refs) {
+      // All at once: the process's GitHub queue keeps the number of calls running together down.
+      const results = await Promise.all(refs.map(async (ref) => {
         const reference = ref.repo ? `${ref.repo}#${ref.pr}` : String(ref.pr);
         try {
-          const result = await startOne(sessionID, reference, undefined, batchID);
-          lines.push(result.message);
-          if (result.started) started.push(result.started);
+          return await startOne(sessionID, reference, undefined, batchID);
         } catch (err) {
-          lines.push(`${reference}: ${err instanceof Error ? err.message : String(err)}`);
+          return { message: `${reference}: ${err instanceof Error ? err.message : String(err)}` };
         }
+      }));
+      for (const result of results) {
+        lines.push(result.message);
+        if ("started" in result && result.started) started.push(result.started);
       }
       if (started.length > 1) {
         const label = batchLabel(started.map((s) => s.title));

@@ -33,6 +33,8 @@ export interface Watch {
   readonly lastCheckedAt?: number;
   readonly lastSnapshot?: string;
   readonly lastFacts?: PrFacts;
+  /** Started from the quick read: the first full check becomes the baseline instead of being compared with it. */
+  readonly provisional?: boolean;
   readonly stuckReported?: boolean;
   /** The approval wait last reported to the user, so a watch started during a wait says it once. */
   readonly approvalReported?: string;
@@ -199,6 +201,10 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     : snapshot.facts;
   if (facts) use(facts);
   if (!facts) return { watch: { ...watch, lastCheckedAt: now }, stop: false, delayMs: ACTIVE_POLL_MS };
+  if (watch.provisional) {
+    const { provisional: _done, ...rest } = watch;
+    return tickInner({ ...rest, lastSnapshot: snapshot.text, lastFacts: facts }, { ...ports, snapshot: async () => snapshot }, settings, use, say);
+  }
 
   const changed = snapshot.text !== watch.lastSnapshot;
   const current = phaseOf(facts, now);

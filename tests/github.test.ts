@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, prComments, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { blockedChecks, blockingRun, branchPr, expectedChecksApproval, prComments, expectedDeploy, laterDeploy, mergeWorkflows, prForRun, parsePrReference, prSnapshot, quickSnapshot, requiredChecks, runLine, type Gh } from "../core/github";
+import { aPrView } from "./mothers";
+const NOW = Date.parse("2026-11-19T10:00:00Z");
 
 describe("parsePrReference", () => {
   test("reads a plain PR number", () => {
@@ -401,5 +403,21 @@ describe("branchPr: the open PR for a branch", () => {
     };
     expect(await branchPr(gh('[{"number":82}]'), "o/r", "fix", "/w")).toBe(82);
     expect(await branchPr(gh("[]"), "o/r", "main", "/w")).toBeUndefined();
+  });
+});
+
+describe("quickSnapshot: one call, for starting a watch at once", () => {
+  test("an open PR: its own state and checks, from gh pr view alone", async () => {
+    const calls: string[][] = [];
+    const gh: Gh = async (args) => (calls.push(args), JSON.stringify(aPrView({ title: "Fix it", url: "https://github.com/o/r/pull/7", reviewDecision: "REVIEW_REQUIRED" })));
+    const snapshot = await quickSnapshot(gh, "o/r", 7, "/w", NOW);
+    expect(calls.map((a) => a.slice(0, 2))).toEqual([["pr", "view"]]);
+    expect(snapshot?.text.split("\n")[0]).toBe("PR: Fix it (https://github.com/o/r/pull/7)");
+    expect(snapshot?.facts?.review).toBe("REVIEW_REQUIRED");
+  });
+
+  test("merged or closed: none, the full read decides", async () => {
+    const gh: Gh = async () => JSON.stringify(aPrView({ state: "MERGED" }));
+    expect(await quickSnapshot(gh, "o/r", 7, "/w", NOW)).toBeUndefined();
   });
 });

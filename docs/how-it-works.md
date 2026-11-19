@@ -64,6 +64,10 @@ Each check reads the PR and the workflow runs on its merge commit and turns them
 - **No duplicates:** OpenCode can load the plugin more than once, and each instance may run the same watch. An identical message to the same session within 30 minutes is sent only once (tracked in plugin storage, which all instances share).
 - **Batches and digests:** messages for one session arriving within 20 seconds are sent as one digest. For each batch involved, the digest adds progress like `approved 3/6 · merged 1/6 · done 0/6` (done: deployed, or merged where nothing deploys). Any watch on a batch PR, including a separate deploy watch after a merge, keeps the batch's numbers current. The batch ends when its last watch stops; a later merge starts its own, separate watch.
 
+## Starting many at once
+
+A watch on an open PR starts from one quick read of the PR (its state, review and checks), so `watch_pr` with 27 PRs answers in a few seconds. The full check (required checks, runs, Terraform plans, comments, expected deploy) follows right after in the background and becomes the baseline without being reported. Every GitHub call in the process goes through one queue, at most 6 at a time, and starting a watch goes ahead of background checks.
+
 ## Automatic starts
 
 - **`gh pr create`:** the new PR (its link in the command's output) is watched.

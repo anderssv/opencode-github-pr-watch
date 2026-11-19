@@ -1,3 +1,4 @@
+import type { GhPriority } from "./gh-queue";
 import { existsSync } from "node:fs";
 import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-binary";
 import { logTail } from "./log-excerpt";
@@ -56,12 +57,13 @@ const execGh: Gh = (args, cwd) =>
   });
 
 // While GitHub is rate limiting or can't be reached, every call is refused at once until the shared pause is over.
-export const runGh: Gh = async (args, cwd) => {
+// Every call waits its turn in the process's queue.
+const ghCall = (priority: GhPriority): Gh => async (args, cwd) => {
   const state = processState();
   const paused = pausedText(state.github, Date.now());
   if (paused) throw new Error(paused);
   try {
-    const out = await execGh(args, cwd);
+    const out = await state.ghQueue.run(priority, () => execGh(args, cwd));
     if (state.github) {
       debug("github-back", { after: state.github.kind, failures: state.github.failures });
       state.github = undefined;
@@ -76,6 +78,10 @@ export const runGh: Gh = async (args, cwd) => {
     throw err;
   }
 };
+
+export const runGh: Gh = ghCall("background");
+/** For what someone is waiting on, such as starting a watch: ahead of background checks. */
+export const runGhFirst: Gh = ghCall("first");
 
 /** Why every GitHub call is paused right now, for the panel; undefined when they aren't. */
 export const githubPaused = () => pausedText(processState().github, Date.now());
@@ -133,6 +139,16 @@ export async function requiredChecks(gh: Gh, repo: string, base: string, cwd: st
 
 /** The model's judgement of a workflow's role, cached by the caller; undefined when it can't be judged. */
 export type RoleLookup = (workflowID: number) => Promise<WorkflowRole | undefined>;
+
+/**
+ * The open PR from one call, to start its watch at once; the first full check fills in the rest. Merged or closed PRs
+ * need the full read (their deploy decides whether to watch), so they get none.
+ */
+export async function quickSnapshot(gh: Gh, repo: string, pr: number, cwd: string, now = Date.now()): Promise<Snapshot | undefined> {
+  const view: PrView = JSON.parse(await gh(["pr", "view", String(pr), "--repo", repo, "--json", PR_FIELDS], cwd));
+  if (view.state !== "OPEN") return undefined;
+  return { text: `PR: ${view.title} (${view.url})\n(first read; details follow)`, facts: factsFrom(view, [], now) };
+}
 
 export async function prSnapshot(
   gh: Gh,
