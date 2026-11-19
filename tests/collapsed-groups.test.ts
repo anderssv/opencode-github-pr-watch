@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { groupKey, pruneCollapsed, readCollapsed, toggleCollapsed } from "../core/collapsed-groups";
+import { groupKey, pruneCollapsed, readCollapsed, toggleCollapsed, topicGroupNames } from "../core/collapsed-groups";
 
 describe("collapsed groups in the PRs panel", () => {
   test("a group is known by list, kind and name", () => {
@@ -32,5 +32,13 @@ describe("pruneCollapsed: a collapsed group that's gone comes back expanded", ()
   test("only for what is known: topics not loaded yet, or a list not loaded, keep their collapsed groups", () => {
     expect(pruneCollapsed([repo, topic], [{ list: "open", kind: "repo", names: ["o/old"] }])).toEqual([repo, topic]);
     expect(pruneCollapsed([groupKey("repo", "o/x", true)], [{ list: "open", kind: "repo", names: [] }])).toEqual([groupKey("repo", "o/x", true)]);
+  });
+});
+
+describe("topicGroupNames: the topic groups that can exist", () => {
+  test("the model's topics, and Other, which code adds for the PRs it left out", () => {
+    expect(topicGroupNames([{ name: "Deps", prs: [] }])).toEqual(["Deps", "Other"]);
+    const other = groupKey("topic", "Other", false);
+    expect(pruneCollapsed([other], [{ list: "open", kind: "topic", names: topicGroupNames([{ name: "Deps", prs: [] }]) }])).toEqual([other]);
   });
 });

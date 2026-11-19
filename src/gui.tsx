@@ -11,7 +11,7 @@ import { lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
 import { STAGE_MARKS as STAGE_MARK, type Stage, type StageState } from "../core/progress";
-import { COLLAPSED_GROUPS_KEY, groupKey, pruneCollapsed, readCollapsed, toggleCollapsed, type ExistingGroups } from "../core/collapsed-groups";
+import { COLLAPSED_GROUPS_KEY, groupKey, pruneCollapsed, readCollapsed, toggleCollapsed, topicGroupNames, type ExistingGroups } from "../core/collapsed-groups";
 import { HIDDEN_BUTTONS_KEY, ROW_BUTTONS, readHiddenButtons, toggleButton, type RowButton } from "../core/row-buttons";
 
 interface Row {
@@ -311,7 +311,8 @@ export default Plugin.define({
     createEffect(() => {
       const { open, merged } = store();
       const repos = (prs: readonly { readonly repo: string }[]) => [...new Set(prs.map((pr) => pr.repo))];
-      const topicNames = topics()?.map((t) => t.name);
+      const loadedTopics = topics();
+      const topicNames = loadedTopics && topicGroupNames(loadedTopics);
       const existing: ExistingGroups[] = [
         ...(open ? [{ list: "open" as const, kind: "repo", names: repos(open) }] : []),
         ...(merged ? [{ list: "merged" as const, kind: "repo", names: repos(merged) }] : []),

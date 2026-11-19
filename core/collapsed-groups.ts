@@ -1,3 +1,4 @@
+import { OTHER } from "./topics";
 /** Groups the user has collapsed in the PRs panel, kept as one global setting like the row buttons. */
 export const COLLAPSED_GROUPS_KEY = "pr-watch/collapsed-groups";
 
@@ -33,3 +34,6 @@ export function pruneCollapsed(collapsed: readonly string[], existing: readonly 
     return !known || known.names.includes(key.slice(`${known.list}:${known.kind}:`.length));
   });
 }
+
+/** The model's topics, and "Other", which code adds for PRs that got none, so a collapsed "Other" isn't taken as gone. */
+export const topicGroupNames = (topics: readonly { readonly name: string }[]): string[] => [...new Set([...topics.map((t) => t.name), OTHER])];

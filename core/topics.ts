@@ -9,7 +9,7 @@ export interface Topic {
 
 export const prID = (pr: MyPr) => `${pr.repo}#${pr.number}`;
 
-const OTHER = "Other";
+export const OTHER = "Other";
 
 /** Asks the light model to sort the PRs into a few topics by what they change. */
 export function topicsPrompt(prs: readonly MyPr[]): string {
