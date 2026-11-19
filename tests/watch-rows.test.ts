@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sessionGroups, watchRows } from "../core/watch-rows";
 import { aFacts, aWatch } from "./mothers";
+import { processState } from "../core/runtime";
 
 const NOW = Date.parse("2026-11-13T10:00:00Z");
 
@@ -162,5 +163,19 @@ describe("attention: a waiting line that needs more than patience", () => {
     expect(row({ review: "CHANGES_REQUESTED" }).attention).toBe(true);
     expect(row({ branch: "CONFLICT" }).attention).toBe(true);
     expect(row({ review: "REVIEW_REQUIRED", unresolvedThreads: 1 }).attention).toBe(true);
+  });
+});
+
+describe("watchRows: a PR whose state is being fetched from GitHub", () => {
+  test("is marked as updating until its check is done", () => {
+    const watch = aWatch({ id: "o/r#7", sessionID: "s1" });
+    const state = processState();
+    state.checking.add("o/r#7");
+    try {
+      expect(watchRows([watch], "s1", Date.now())[0]!.updating).toBe(true);
+    } finally {
+      state.checking.delete("o/r#7");
+    }
+    expect(watchRows([watch], "s1", Date.now())[0]!.updating).toBeUndefined();
   });
 });

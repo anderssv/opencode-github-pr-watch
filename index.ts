@@ -587,12 +587,21 @@ export default Plugin.define({
     };
 
     // Another instance may be checking this watch (after a reload); then look again shortly instead of reporting twice.
+    // The panel shows a line as updating from the moment its check starts (it may wait in the GitHub queue first).
+    const announce = (id: string) =>
+      void tolerate(debug, "updating event", ctx.storage.get(KEY_PREFIX + id).then((w) => {
+        const watch = w as unknown as Watch | undefined;
+        if (watch) changed(watch.sessionID, id);
+      }), undefined);
+
     const step = async (id: string) => {
       if (!beginCheck(shared, id)) return schedule(id, BUSY_RETRY_MS);
+      announce(id);
       try {
         await checkOnce(id);
       } finally {
         endCheck(shared, id);
+        announce(id);
       }
     };
 

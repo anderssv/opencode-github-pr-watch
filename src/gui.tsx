@@ -21,6 +21,7 @@ interface Row {
   readonly tone: "pending" | "waiting" | "failed" | "done";
   readonly track?: readonly Stage[];
   readonly attention?: true;
+  readonly updating?: true;
   readonly runUrl?: string;
   readonly waitingFor?: "code-review" | "run-approval";
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
@@ -206,7 +207,14 @@ export default Plugin.define({
             </Show>
           </span>
           <div style={{ flex: "1", "min-width": "0" }}>
-            <div style={{ "overflow-wrap": "anywhere" }}>{line.text}</div>
+            <div style={{ "overflow-wrap": "anywhere" }}>
+              {line.text}
+              <Show when={line.row?.updating}>
+                <span class="pr-watch-spinning" title="Fetching the latest state from GitHub" style={{ display: "inline-flex", "vertical-align": "middle", "margin-left": "6px", opacity: "0.6" }}>
+                  <ctx.ui.Icon name="refresh" size="small" />
+                </span>
+              </Show>
+            </div>
             <Show when={line.row?.track} fallback={<div style={{ opacity: "0.6", "font-size": "12px" }}>{line.detail}</div>}>
               {(track) => <Track stages={track()} after={line.after} />}
             </Show>

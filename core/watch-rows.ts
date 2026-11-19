@@ -1,3 +1,4 @@
+import { processState } from "./runtime";
 import { nextStep, type PrFacts, type Step } from "./pr-facts";
 import type { Watch } from "./watcher";
 import type { AttachedRun } from "./attached-runs";
@@ -7,6 +8,7 @@ import { whoActs } from "./actor";
 export type WatchTone = "pending" | "waiting" | "failed" | "done";
 
 export interface WatchRow {
+  readonly updating?: true;
   readonly id: string;
   readonly label: string;
   readonly url: string;
@@ -117,6 +119,8 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
       const tone: WatchTone = approving ? "waiting" : going && step?.tone !== "failed" ? "pending" : (step?.tone ?? "pending");
       return {
         id: watch.id,
+        // Its state is being fetched from GitHub right now (waiting in the queue or being read).
+        ...(processState().checking.has(watch.id) ? { updating: true as const } : {}),
         ...(watch.lastFacts?.author ? { author: watch.lastFacts.author } : {}),
         ...(watch.lastFacts && ["OPEN", "MERGED", "CLOSED"].includes(watch.lastFacts.state) ? { state: watch.lastFacts.state as "OPEN" | "MERGED" | "CLOSED" } : {}),
         ...(watch.lastFacts?.draft ? { draft: true } : {}),
