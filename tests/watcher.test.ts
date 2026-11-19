@@ -793,3 +793,26 @@ describe("a watch from before a change in how the state is read", () => {
     expect(ports.notifications.length).toBe(1);
   });
 });
+
+describe("a ready PR waiting for someone else's deploy on its base branch", () => {
+  const ready = { review: "APPROVED" as const };
+  const waiting = { review: "APPROVED" as const, deployingOnBase: ["MAIN - Deployment pipeline"] };
+
+  test("going into the wait and out of it again says nothing", async () => {
+    const into = fakePorts({ snapshots: [aSnapshot("waiting", waiting)], verdicts: ['{"verdict":"wait"}'] });
+    const first = await tick(watchStarted({ phase: "ready", lastSnapshot: "ready", lastFacts: aFacts(ready) }), into, settings());
+    expect(into.notifications).toEqual([]);
+    expect(first.watch.readyBeforeWait).toBe(true);
+
+    const out = fakePorts({ snapshots: [aSnapshot("ready", ready)], verdicts: ['{"verdict":"wait"}'] });
+    const second = await tick(first.watch, out, settings());
+    expect(out.notifications).toEqual([]);
+    expect(second.watch.readyBeforeWait).toBeUndefined();
+  });
+
+  test("a PR that wasn't ready before the wait is said to be ready after it", async () => {
+    const out = fakePorts({ snapshots: [aSnapshot("ready", ready)], verdicts: ['{"verdict":"wait"}'] });
+    await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: aFacts(waiting) }), out, settings());
+    expect(out.notifications[0]!.text).toContain("ready to merge");
+  });
+});

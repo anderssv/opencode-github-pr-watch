@@ -37,8 +37,8 @@ describe("pruneCollapsed: a collapsed group that's gone comes back expanded", ()
 
 describe("topicGroupNames: the topic groups that can exist", () => {
   test("the model's topics, and Other, which code adds for the PRs it left out", () => {
-    expect(topicGroupNames([{ name: "Deps", prs: [] }])).toEqual(["Deps", "Other"]);
+    expect(topicGroupNames([{ name: "Deps" }])).toEqual(["Deps", "Other"]);
     const other = groupKey("topic", "Other", false);
-    expect(pruneCollapsed([other], [{ list: "open", kind: "topic", names: topicGroupNames([{ name: "Deps", prs: [] }]) }])).toEqual([other]);
+    expect(pruneCollapsed([other], [{ list: "open", kind: "topic", names: topicGroupNames([{ name: "Deps" }]) }])).toEqual([other]);
   });
 });

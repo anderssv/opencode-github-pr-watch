@@ -39,6 +39,8 @@ export interface Watch {
   readonly lastCheckedAt?: number;
   readonly lastSnapshot?: string;
   readonly lastFacts?: PrFacts;
+  /** It was ready to merge when another merge's deploy on the base branch made it wait; coming back to ready is quiet. */
+  readonly readyBeforeWait?: true;
   /** Started from the quick read: the first full check becomes the baseline instead of being compared with it. */
   readonly provisional?: boolean;
   /** How the state was read when this watch's baseline was taken; see SNAPSHOT_VERSION. */
@@ -348,11 +350,21 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     );
     found.push(`${stated}${author}${suggestion}`);
   }
-  if (found.length === 0 && watch.lastFacts && !expectedCommitArrived) {
-    if (nextStep(watch.lastFacts, now) !== nextStep(facts, now)) found.push(stepChangeText(watch.lastFacts, facts, now));
+  // A ready PR that only waits for another merge's deploy on its base branch, and is ready again after it, has nothing
+  // new to say: each merge by someone else would otherwise send "waiting for main…" and "ready to merge" again.
+  const before = watch.lastFacts ? nextStep(watch.lastFacts, now) : undefined;
+  const stepNow = nextStep(facts, now);
+  const quietWait = (before === "READY" && stepNow === "WAIT_DEPLOY") || (before === "WAIT_DEPLOY" && stepNow === "READY" && watch.readyBeforeWait === true);
+  if (stepNow === "WAIT_DEPLOY" && (before === "READY" || watch.readyBeforeWait)) next = { ...next, readyBeforeWait: true };
+  else if (next.readyBeforeWait) {
+    const { readyBeforeWait: _done, ...rest } = next;
+    next = rest;
+  }
+  if (found.length === 0 && watch.lastFacts && !expectedCommitArrived && !quietWait) {
+    if (before !== stepNow) found.push(stepChangeText(watch.lastFacts, facts, now));
   }
   // Becoming ready for merge is where a person has to act, so it's named even when other events already explain why.
-  const nowReady = phase === "ready" && watch.lastFacts !== undefined && nextStep(watch.lastFacts, now) !== "READY";
+  const nowReady = phase === "ready" && watch.lastFacts !== undefined && before !== "READY" && !quietWait;
   if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
   // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
   const actor = whoActs(facts, now);
