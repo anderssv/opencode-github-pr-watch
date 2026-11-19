@@ -1,4 +1,5 @@
 import type { GithubHealth } from "./github-health";
+import { newOutbox, type Outbox } from "./outbox";
 // OpenCode runs setup again for every plugin instance and reload in the same process (one per location, and again
 // whenever the host rebuilds its plugin scope). Anything that must happen once per process, such as announcing resumed
 // watches or owning the poll loop, is kept here, outside any one instance.
@@ -18,9 +19,11 @@ export interface ProcessState {
   readonly checking: Set<string>;
   /** GitHub rate limiting or out of reach: every call waits until this is over. */
   github?: GithubHealth;
+  /** Messages waiting to be posted, and the instance that posts them. */
+  readonly outbox: Outbox;
 }
 
-export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map(), checking: new Set() });
+export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map(), checking: new Set(), outbox: newOutbox() });
 
 const KEY = Symbol.for("opencode-pr-watch/process");
 
@@ -32,6 +35,7 @@ export const processState = (): ProcessState => {
   (state as { checkers?: ProcessState["checkers"] }).checkers ??= new Map();
   (state as { orphans?: ProcessState["orphans"] }).orphans ??= new Map();
   (state as { checking?: ProcessState["checking"] }).checking ??= new Set();
+  (state as { outbox?: ProcessState["outbox"] }).outbox ??= newOutbox();
   return state;
 };
 

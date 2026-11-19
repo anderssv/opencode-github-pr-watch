@@ -1,3 +1,4 @@
+import { enqueue, flushOutbox, registerDeliverer, releaseDeliverer, type Queued } from "./core/outbox";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
@@ -76,6 +77,9 @@ const phaseFields = (facts: PrFacts, now: number) => {
   return "phase" in current ? { phase: current.phase, phaseSince: now } : {};
 };
 const DIGEST_WINDOW_MS = 20_000;
+// A post to a session that hasn't answered in this time is taken as lost (its instance may have been disposed).
+const DELIVERY_TIMEOUT_MS = 30_000;
+const DELIVERY_RETRY_MS = 60_000;
 const ROLE_WAIT_MS = 15_000;
 const BATCH_PREFIX = "batch/";
 
@@ -315,14 +319,8 @@ export default Plugin.define({
     // Messages arriving close together (typically a batch of PRs changing at once) are sent as one digest.
     // A digest wakes the agent when any message in it asks to.
     // ...and shows a desktop notification when any message in it needs someone.
-    const pending = new Map<string, { messages: string[]; wake: boolean; alert: string[]; timer: ReturnType<typeof setTimeout> }>();
-
     const collect = (sessionID: string, text: string, wake: boolean, alert: boolean) => {
-      const entry = pending.get(sessionID) ?? { messages: [], wake: false, alert: [], timer: setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS) };
-      entry.messages.push(text);
-      entry.wake ||= wake;
-      if (alert) entry.alert.push(text);
-      pending.set(sessionID, entry);
+      if (enqueue(processState().outbox, sessionID, text, wake, alert)) setTimeout(() => void flush(sessionID), DIGEST_WINDOW_MS);
     };
 
     const batchesFor = async (messages: string[]) => {
@@ -338,35 +336,42 @@ export default Plugin.define({
       for (const entry of await scanAll("failures/")) if (failureExpired(entry.value, now)) await ctx.storage.remove(entry.key);
     };
 
+    // Runs in whichever instance queued the messages, possibly one already replaced; the posting itself goes through
+    // the newest live instance's deliverer.
     const flush = async (sessionID: string) => {
+      try {
+        const result = await flushOutbox(processState().outbox, sessionID, DELIVERY_TIMEOUT_MS);
+        if (result === "retry") {
+          debug("deliver-retry", { sessionID, retryMs: DELIVERY_RETRY_MS });
+          setTimeout(() => void flush(sessionID), DELIVERY_RETRY_MS);
+        }
+      } catch (err) {
+        console.error("[pr-watch] could not deliver messages:", err);
+        debug("deliver-failed", { sessionID, error: err instanceof Error ? err.message : String(err) });
+      }
+    };
+
+    const deliverQueued = async (sessionID: string, entry: Queued) => {
       void tolerate(debug, "cleaning up old sends and failure counts", forgetOldSends(), undefined);
-      const entry = pending.get(sessionID);
-      pending.delete(sessionID);
-      if (!entry || entry.messages.length === 0) return;
+      debug("deliver", { sessionID, messages: entry.messages.length, attempt: entry.attempts + 1 });
       // Another plugin instance may have queued these before the unwatch reached this one.
       const unwatched = new Map(
         (await scanAll(`unwatched/${sessionID}/`)).map((e) => [e.key.slice(`unwatched/${sessionID}/`.length), e.value as number] as const),
       );
       const kept = dropUnwatched(entry.messages, unwatched);
       if (kept.length < entry.messages.length) debug("deliver-dropped", { sessionID, reason: "unwatched", messages: entry.messages.filter((m) => !kept.includes(m)) });
-      entry.messages = kept;
-      if (entry.messages.length === 0) return;
-      try {
-        const now = Date.now();
-        const batches = await batchesFor(entry.messages);
-        const progress = batches.map(({ batch }) => batchProgress(batch.label, batch.members.map((m) => batch.facts[m]), now));
-        const digest = composeDigest(entry.messages, progress);
-        const alerts = entry.alert.filter((m) => entry.messages.includes(m));
-        if ((options.desktopNotifications ?? true) && alerts.length > 0) {
-          showDesktopNotification(alerts.length === 1 ? alerts[0]! : `PR watch: ${alerts.length} updates. ${progress[0] ?? alerts[0]}`);
-        }
-        await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${digest}`, delivery: "queue", resume: entry.wake });
-        debug("delivered", { sessionID, messages: entry.messages.length, wake: entry.wake });
-        await removeFinishedBatches();
-      } catch (err) {
-        console.error("[pr-watch] could not deliver messages:", err);
-        debug("deliver-failed", { sessionID, error: err });
+      if (kept.length === 0) return;
+      const now = Date.now();
+      const batches = await batchesFor(kept);
+      const progress = batches.map(({ batch }) => batchProgress(batch.label, batch.members.map((m) => batch.facts[m]), now));
+      const digest = composeDigest(kept, progress);
+      const alerts = entry.alert.filter((m) => kept.includes(m));
+      await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${digest}`, delivery: "queue", resume: entry.wake });
+      if ((options.desktopNotifications ?? true) && alerts.length > 0) {
+        showDesktopNotification(alerts.length === 1 ? alerts[0]! : `PR watch: ${alerts.length} updates. ${progress[0] ?? alerts[0]}`);
       }
+      debug("delivered", { sessionID, messages: kept.length, wake: entry.wake });
+      await removeFinishedBatches();
     };
 
     // Applies a change to every stored batch; one left with no members is removed.
@@ -430,6 +435,7 @@ export default Plugin.define({
       (id, delayMs) => schedule(id, delayMs),
     );
     const owning = () => ownsPolling(shared, directory, owner);
+    registerDeliverer(shared.outbox, owner, deliverQueued);
 
     const topicCache = new Map<string, Promise<Topic[]>>();
     // The gh user, to tell their PRs from others' among the watched ones; read once.
@@ -697,12 +703,9 @@ export default Plugin.define({
       const owner = sessionID ?? ((await ctx.storage.get(KEY_PREFIX + id)) as unknown as Watch | undefined)?.sessionID;
       if (owner) await ctx.storage.set(unwatchedKey(owner, id), Date.now());
       await stop(id);
-      for (const [sessionID, entry] of pending) {
+      for (const [sessionID, entry] of processState().outbox.queued) {
         entry.messages = dropMessagesFor(entry.messages, id);
-        if (entry.messages.length === 0) {
-          clearTimeout(entry.timer);
-          pending.delete(sessionID);
-        }
+        if (entry.messages.length === 0) processState().outbox.queued.delete(sessionID);
       }
       await removeFinishedBatches();
     };
@@ -1103,6 +1106,9 @@ export default Plugin.define({
       });
     });
 
-    return () => releasePolling(shared, directory, owner);
+    return () => {
+      releasePolling(shared, directory, owner);
+      releaseDeliverer(shared.outbox, owner);
+    };
   },
 });
