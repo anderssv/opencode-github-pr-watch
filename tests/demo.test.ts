@@ -13,7 +13,8 @@ describe("demo data: made-up PRs for screenshots", () => {
     const view = prsView(loaded, readChoices(() => null), "ses_1");
     expect(view.runs.length).toBe(1);
     expect(view.open.map((g) => g.name)).toEqual(["acme/api", "acme/infra", "acme/shop"]);
-    expect(view.merged?.length).toBe(2);
+    expect(view.merged?.length).toBe(1);
+    expect(view.merged?.[0]?.prs.length).toBeGreaterThanOrEqual(2);
     expect(pillView(demoData("ses_1", NOW).sessionRows)).toEqual({ label: "3 PRs watched", worst: "failed" });
   });
 

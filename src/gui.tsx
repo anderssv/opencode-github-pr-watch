@@ -367,7 +367,7 @@ export default Plugin.define({
           <PrLineView
             text={
               <>
-                <Show when={view().repoOnLine}>
+                <Show when={view().repoOnLine || line.merged}>
                   <span style={{ opacity: "0.6" }}>{line.pr.repo.slice(line.pr.repo.indexOf("/") + 1)} </span>
                 </Show>
                 #{line.pr.number} {line.pr.title}
@@ -623,7 +623,9 @@ export default Plugin.define({
                   <Show when={view().merged} fallback={<div style={{ opacity: "0.6" }}>Loading…</div>}>
                     {(merged) => (
                       <Show when={view().mergedEmpty === undefined} fallback={<div style={{ opacity: "0.6" }}>{view().mergedEmpty}</div>}>
-                        <Groups groups={merged()} merged />
+                        <div style={{ display: "flex", "flex-direction": "column", gap: "6px" }}>
+                          <Index each={merged()[0]?.prs ?? []}>{(pr) => <PrLine pr={pr()} merged />}</Index>
+                        </div>
                       </Show>
                     )}
                   </Show>

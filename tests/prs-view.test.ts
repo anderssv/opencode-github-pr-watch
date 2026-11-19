@@ -60,7 +60,18 @@ describe("prsView: what the PRs tab shows", () => {
     expect(ready.repoOnLine).toBe(true);
   });
 
-  test("recently merged: grouped the same way, absent until loaded, empty text when nothing matches", () => {
+  test("recently merged: one list, newest merge first, whatever the grouping", () => {
+    const older = { repo: "o/b", number: 11, title: "older", url: "u11", draft: false, createdAt: "2026-10-01T00:00:00Z", closedAt: "2026-10-13T00:00:00Z" };
+    const newer = { repo: "o/a", number: 12, title: "newer", url: "u12", draft: false, createdAt: "2026-10-01T00:00:00Z", closedAt: "2026-10-14T00:00:00Z" };
+    const both = { ...data, merged: [older, newer] };
+    for (const grouping of ["repo", "topic", "none"] as const) {
+      const view = prsView(both, choices({ grouping }), "s1", [{ name: "Deps", prs: ["o/a#12"] }]);
+      expect(view.merged!.map((g) => g.kind)).toEqual(["all"]);
+      expect(numbers(view.merged!)).toEqual([12, 11]);
+    }
+  });
+
+  test("recently merged: absent until loaded, empty text when nothing matches", () => {
     expect(numbers(prsView(data, choices(), "s1").merged!)).toEqual([9]);
     expect(prsView({ ...data, merged: undefined }, choices(), "s1").merged).toBeUndefined();
     expect(prsView(data, choices({ search: "nothing" }), "s1").mergedEmpty).toBe("None match.");

@@ -122,9 +122,8 @@ export function prsView<R extends WatchRowLike>(data: PrsData<R>, choices: PrsCh
   const watched = new Map([...rows.filter((row) => row.forPr).map((row) => [row.forPr!, row] as const), ...rows.map((row) => [row.id, row] as const)]);
   const watchOf = (pr: MyPr) => watched.get(`${pr.repo}#${pr.number}`);
   const shownStatus = (row: WatchRowLike | undefined) => choices.statuses.includes(statusOf(row));
-  // The status filter is for what's still going; merged PRs are done, so it would only empty that list.
-  const group = (prs: readonly MyPr[], byStatus = true): PrGroup[] => {
-    const found = prs.filter((pr) => matchesSearch(pr, choices.search) && (!byStatus || shownStatus(watchOf(pr))));
+  const group = (prs: readonly MyPr[]): PrGroup[] => {
+    const found = prs.filter((pr) => matchesSearch(pr, choices.search) && shownStatus(watchOf(pr)));
     if (choices.grouping === "none") {
       const all = allPrs(found, organisation, choices.sort, choices.drafts);
       return all.length > 0 ? [{ name: "All PRs", kind: "all", prs: all }] : [];
@@ -136,7 +135,10 @@ export function prsView<R extends WatchRowLike>(data: PrsData<R>, choices: PrsCh
   const listedIds = new Set([...open, ...(merged ?? [])].map(idOf));
   const searching = choices.search.trim() !== "" || choices.statuses.length < ALL_STATUSES.length;
   const openGroups = group(open);
-  const mergedGroups = merged && group(merged, false);
+  // One list, newest merge first: what was merged lately reads best in the order it happened, not by repo or topic.
+  const mergedFound = merged?.filter((pr) => matchesSearch(pr, choices.search));
+  const mergedList = mergedFound && allPrs(mergedFound, organisation, "newest", true);
+  const mergedGroups = mergedList && (mergedList.length > 0 ? [{ name: "Recently merged", kind: "all" as const, prs: mergedList }] : []);
   return {
     // A run whose PR is listed shows on the PR's line instead.
     runs: runWatches(rows).filter((row) => !(row.forPr && listedIds.has(row.forPr)) && (!choices.sessionOnly || row.sessionID === sessionID) && shownStatus(row)),
