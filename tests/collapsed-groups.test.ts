@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { groupKey, readCollapsed, toggleCollapsed } from "../core/collapsed-groups";
+import { groupKey, pruneCollapsed, readCollapsed, toggleCollapsed } from "../core/collapsed-groups";
 
 describe("collapsed groups in the PRs panel", () => {
   test("a group is known by list, kind and name", () => {
@@ -18,5 +18,19 @@ describe("collapsed groups in the PRs panel", () => {
     expect(readCollapsed(null)).toEqual([]);
     expect(readCollapsed("not json")).toEqual([]);
     expect(readCollapsed(JSON.stringify({ a: 1 }))).toEqual([]);
+  });
+});
+
+describe("pruneCollapsed: a collapsed group that's gone comes back expanded", () => {
+  const repo = groupKey("repo", "o/old", false);
+  const topic = groupKey("topic", "Java runtime upgrade", false);
+
+  test("a group whose name no longer exists is forgotten", () => {
+    expect(pruneCollapsed([repo, topic], [{ list: "open", kind: "repo", names: ["o/new"] }, { list: "open", kind: "topic", names: ["Java runtime upgrade"] }])).toEqual([topic]);
+  });
+
+  test("only for what is known: topics not loaded yet, or a list not loaded, keep their collapsed groups", () => {
+    expect(pruneCollapsed([repo, topic], [{ list: "open", kind: "repo", names: ["o/old"] }])).toEqual([repo, topic]);
+    expect(pruneCollapsed([groupKey("repo", "o/x", true)], [{ list: "open", kind: "repo", names: [] }])).toEqual([groupKey("repo", "o/x", true)]);
   });
 });

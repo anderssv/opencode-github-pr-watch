@@ -15,3 +15,21 @@ export function readCollapsed(text: string | null): string[] {
 
 export const toggleCollapsed = (collapsed: readonly string[], key: string): string[] =>
   collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key];
+
+/** The groups that exist (not only those shown: a search or filter hides groups without them being gone). */
+export interface ExistingGroups {
+  readonly list: "open" | "merged";
+  readonly kind: string;
+  readonly names: readonly string[];
+}
+
+/**
+ * Forgets collapsed groups that no longer exist, so a group that goes away and comes back (or is renamed) is expanded.
+ * Only lists and kinds that are known are judged: topics still loading, or a list not loaded, keep theirs.
+ */
+export function pruneCollapsed(collapsed: readonly string[], existing: readonly ExistingGroups[]): string[] {
+  return collapsed.filter((key) => {
+    const known = existing.find((e) => key.startsWith(`${e.list}:${e.kind}:`));
+    return !known || known.names.includes(key.slice(`${known.list}:${known.kind}:`.length));
+  });
+}

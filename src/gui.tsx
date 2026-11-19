@@ -1,4 +1,4 @@
-import { createSignal, For, Index, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, For, Index, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { createStore } from "solid-js/store";
 import { ComposerPill, createKeyed, Panel, Plugin, Style, type ComposerPillTone, type IconName } from "@opencode/plugin/gui";
 import { PRS_TAB } from "../core/panel-tab";
@@ -11,7 +11,7 @@ import { lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
 import { STAGE_MARKS as STAGE_MARK, type Stage, type StageState } from "../core/progress";
-import { COLLAPSED_GROUPS_KEY, groupKey, readCollapsed, toggleCollapsed } from "../core/collapsed-groups";
+import { COLLAPSED_GROUPS_KEY, groupKey, pruneCollapsed, readCollapsed, toggleCollapsed, type ExistingGroups } from "../core/collapsed-groups";
 import { HIDDEN_BUTTONS_KEY, ROW_BUTTONS, readHiddenButtons, toggleButton, type RowButton } from "../core/row-buttons";
 
 interface Row {
@@ -306,6 +306,22 @@ export default Plugin.define({
         .catch((err: unknown) => setTopicsError(errorText(err)))
         .finally(() => setMyPrsLoading((n) => n - 1));
     };
+
+    // A collapsed group that no longer exists (renamed, or its PRs gone) is forgotten, so it comes back expanded.
+    createEffect(() => {
+      const { open, merged } = store();
+      const repos = (prs: readonly { readonly repo: string }[]) => [...new Set(prs.map((pr) => pr.repo))];
+      const topicNames = topics()?.map((t) => t.name);
+      const existing: ExistingGroups[] = [
+        ...(open ? [{ list: "open" as const, kind: "repo", names: repos(open) }] : []),
+        ...(merged ? [{ list: "merged" as const, kind: "repo", names: repos(merged) }] : []),
+        ...(topicNames ? (["open", "merged"] as const).map((list) => ({ list, kind: "topic", names: topicNames })) : []),
+      ];
+      const kept = pruneCollapsed(collapsed(), existing);
+      if (kept.length === collapsed().length) return;
+      setCollapsed(kept);
+      localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(kept));
+    });
 
     // The gh user's open PRs, grouped by repo or topic, for the organisation picked in the dropdown, and on request the
     // PRs merged in the last 7 days.
