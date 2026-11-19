@@ -6,7 +6,7 @@ import { fileDebugLog, noDebugLog, tolerate, type DebugLog } from "./core/debug-
 import { dispatchedRun, findWorkflowDispatches, runFromOutput, type Dispatch } from "./core/dispatch";
 import { parseRunReference, runWatchID } from "./core/run-facts";
 import { attachedRun } from "./core/attached-runs";
-import { automaticStartAllowed, dropUnwatched, freshTrigger, isOrphaned, keepExisting, stillWanted } from "./core/lifecycle";
+import { automaticStartAllowed, dropUnwatched, freshTrigger, isOrphaned, keepExisting, stillWanted, keepConcurrentChanges } from "./core/lifecycle";
 import { PrWatch } from "./rpc";
 import { sessionGroups, watchRows } from "./core/watch-rows";
 import type { MyPr } from "./core/my-prs";
@@ -642,9 +642,12 @@ export default Plugin.define({
           }
           return;
         }
-        await ctx.storage.set(KEY_PREFIX + id, result.watch as never);
-        changed(result.watch.sessionID, id);
-        delayMs = result.delayMs > 0 ? alignedDelay(Date.now(), result.delayMs) : result.delayMs;
+        const saved = latest ? keepConcurrentChanges(watch, latest, result.watch) : result.watch;
+        await ctx.storage.set(KEY_PREFIX + id, saved as never);
+        changed(saved.sessionID, id);
+        const runAttached = (saved.runs?.length ?? 0) > (result.watch.runs?.length ?? 0);
+        // A run attached during the check is read right away instead of at the next (possibly 5-minute) check.
+        delayMs = runAttached ? 0 : result.delayMs > 0 ? alignedDelay(Date.now(), result.delayMs) : result.delayMs;
       } catch (err) {
         // The boundary for a check: whatever failed below, this watch keeps going and tries again shortly.
         console.error(`[pr-watch] ${id}:`, err);

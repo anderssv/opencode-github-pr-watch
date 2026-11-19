@@ -250,6 +250,7 @@ export function pollDelay(facts: PrFacts, now: number, awaitingNewRun = false, l
   // Paused checks go on as soon as someone approves, often right after being asked, so they're looked at twice a minute.
   const paused = nextStep(facts, now);
   if (paused === "CHECKS_WAITING" || paused === "CHECKS_BLOCKED") return PAUSED_POLL_MS;
+  if (facts.attachedRuns?.some((run) => run.state === "RUNNING" || run.state === "WAITING")) return ACTIVE_POLL_MS;
   const step = nextStep(facts, now);
   // GitHub merges within a minute or two once an auto-merge PR is ready, so that is checked like a running pipeline.
   if (step === "READY" && facts.autoMerge) return ACTIVE_POLL_MS;

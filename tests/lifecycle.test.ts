@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { automaticStartAllowed, dropUnwatched, freshTrigger, isOrphaned, keepExisting, stillWanted } from "../core/lifecycle";
+import { automaticStartAllowed, keepConcurrentChanges, dropUnwatched, freshTrigger, isOrphaned, keepExisting, stillWanted } from "../core/lifecycle";
 import { aWatch } from "./mothers";
 
 const NOW = Date.parse("2026-11-17T10:00:00Z");
@@ -66,5 +66,26 @@ describe("an automatic trigger on a PR already watched in the session keeps that
     expect(keepExisting({ automatic: false, sessionID: "s1", existing: { sessionID: "s1" } })).toBe(false);
     expect(keepExisting({ automatic: true, sessionID: "s2", existing: { sessionID: "s1" } })).toBe(false);
     expect(keepExisting({ automatic: true, sessionID: "s1" })).toBe(false);
+  });
+});
+
+describe("keepConcurrentChanges: what was added to a watch while it was being checked survives the check's save", () => {
+  const before = aWatch({ runs: [1] });
+
+  test("a run attached during the check is kept; one the check saw finish stays gone", () => {
+    const stored = { ...before, runs: [1, 2] };
+    const checked = { ...before, runs: [] as number[] };
+    expect(keepConcurrentChanges(before, stored, checked).runs).toEqual([2]);
+  });
+
+  test("a trigger's grace and expected commit set during the check are kept", () => {
+    const stored = { ...before, awaiting: { trigger: "rerun" as const, since: NOW }, expectedCommitSince: NOW };
+    const result = keepConcurrentChanges(before, stored, before);
+    expect([result.awaiting, result.expectedCommitSince]).toEqual([{ trigger: "rerun", since: NOW }, NOW]);
+  });
+
+  test("nothing changed meanwhile: the check's result as it is", () => {
+    const checked = { ...before, runs: [] as number[], lastSnapshot: "new" };
+    expect(keepConcurrentChanges(before, before, checked)).toEqual(checked);
   });
 });

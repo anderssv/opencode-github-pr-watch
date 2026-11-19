@@ -470,3 +470,15 @@ describe("PR checks queued behind other runs waiting for run approval (infra#752
     expect(events(facts, facts, NOW)).toEqual([]);
   });
 });
+
+describe("pollDelay with a run followed on the PR", () => {
+  const NOW_ = Date.parse("2026-11-19T10:00:00Z");
+  const waitingForReview = { review: "REVIEW_REQUIRED" as const };
+
+  test("every minute while the run goes, back to waiting on people once it has finished", () => {
+    const running = aFacts({ ...waitingForReview, attachedRuns: [{ run: 1, workflow: "MAIN", state: "RUNNING", url: "u" }] });
+    const done = aFacts({ ...waitingForReview, attachedRuns: [{ run: 1, workflow: "MAIN", state: "SUCCEEDED", url: "u" }] });
+    expect(pollDelay(running, NOW_)).toBe(60_000);
+    expect(pollDelay(done, NOW_)).toBe(pollDelay(aFacts(waitingForReview), NOW_));
+  });
+});

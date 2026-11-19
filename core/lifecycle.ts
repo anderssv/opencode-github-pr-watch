@@ -39,3 +39,16 @@ export const freshTrigger = <T>(trigger: T, command: { readonly startedAt?: numb
  */
 export const keepExisting = (start: { readonly automatic: boolean; readonly sessionID: string; readonly existing?: { readonly sessionID: string } }) =>
   start.automatic && start.existing?.sessionID === start.sessionID;
+
+/**
+ * A check reads the watch, works for seconds, then saves its result. What a run attachment or a trigger stored on the
+ * watch in between would be overwritten by that save, so it is carried over.
+ */
+export function keepConcurrentChanges(before: Watch, stored: Watch, checked: Watch): Watch {
+  let next = checked;
+  const added = (stored.runs ?? []).filter((run) => !(before.runs ?? []).includes(run));
+  if (added.length > 0) next = { ...next, runs: [...(next.runs ?? []).filter((run) => !added.includes(run)), ...added] };
+  if (stored.awaiting !== before.awaiting && stored.awaiting) next = { ...next, awaiting: stored.awaiting };
+  if (stored.expectedCommitSince !== before.expectedCommitSince && stored.expectedCommitSince !== undefined) next = { ...next, expectedCommitSince: stored.expectedCommitSince };
+  return next;
+}
