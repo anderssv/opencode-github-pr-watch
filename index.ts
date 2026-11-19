@@ -12,7 +12,7 @@ import { PrWatch } from "./rpc";
 import { sessionGroups, watchRows } from "./core/watch-rows";
 import type { MyPr } from "./core/my-prs";
 import { parsePlacements, parseTopics, placePrompt, prID, topicPlan, topicsPrompt, type Topic } from "./core/topics";
-import { alignedDelay, sessionSlot } from "./core/policy";
+import { alignedDelay } from "./core/policy";
 import { GH_MISSING, noWatchMessage } from "./core/gh-binary";
 import { parseReplacement, replacementPrompt, type Candidate } from "./core/replacement";
 import { Plugin } from "@opencode/plugin";
@@ -632,7 +632,7 @@ export default Plugin.define({
         changed(saved.sessionID, id);
         const runAttached = (saved.runs?.length ?? 0) > (result.watch.runs?.length ?? 0);
         // A run attached during the check is read right away instead of at the next (possibly a minute away) check.
-        delayMs = runAttached ? 0 : result.delayMs > 0 ? alignedDelay(Date.now(), result.delayMs, sessionSlot(saved.sessionID)) : result.delayMs;
+        delayMs = runAttached ? 0 : result.delayMs > 0 ? alignedDelay(Date.now(), result.delayMs) : result.delayMs;
       } catch (err) {
         // The boundary for a check: whatever failed below, this watch keeps going and tries again shortly.
         console.error(`[pr-watch] ${id}:`, err);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { nextStep } from "../core/pr-facts";
-import { approvalText, approvalWait, endReason, overdue, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay, sessionSlot } from "../core/policy";
+import { approvalText, approvalWait, endReason, overdue, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay } from "../core/policy";
 import type { PrFacts } from "../core/pr-facts";
 import { suggestionFor } from "../core/advice";
 import { aFacts } from "./mothers";
@@ -303,36 +303,22 @@ describe("reminderDue", () => {
 });
 
 describe("pollDelay", () => {
-  test("a watch with no change for a day is checked every 5 minutes, whatever it waits for", () => {
+  test.each([
+    aFacts({ checks: "PENDING" }),
+    aFacts({ review: "REVIEW_REQUIRED" }),
+    aFacts({ checks: "PENDING", waitingChecks: ["Plan"] }),
+    merged({ deploy: "RUNNING" }),
+    merged({ deploy: "WAITING" }),
+    aFacts({ autoMerge: true }),
+  ])("every watch is checked every 30 seconds, whatever it waits for", (facts) => {
+    expect(pollDelay(facts, NOW)).toBe(30_000);
+  });
+
+  test("a watch with no change for a day is checked every 5 minutes, unless a new run is expected", () => {
     const quiet = NOW - 25 * 3_600_000;
     expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, quiet)).toBe(5 * 60_000);
-    expect(pollDelay(aFacts({ checks: "PENDING" }), NOW, false, quiet)).toBe(5 * 60_000);
-    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, NOW - 3_600_000)).toBe(60_000);
-  });
-
-  test.each([
-    [aFacts({ checks: "PENDING" }), 30_000],
-    [merged({ deploy: "RUNNING" }), 30_000],
-    [merged({ deploy: "NO_RUNS" }), 30_000],
-    [aFacts({ autoMerge: true }), 30_000],
-  ])("polls every 30 seconds while things are moving", (facts, delay) => {
-    expect(pollDelay(facts, NOW)).toBe(delay);
-  });
-
-  test.each([
-    [aFacts({ checks: "PENDING", waitingChecks: ["Plan"] }), 30_000],
-    [aFacts({ checks: "PASS", blockedChecks: [{ workflow: "W", title: "t", url: "u", since: 0 }] }), 30_000],
-    [merged({ deploy: "WAITING" }), 30_000],
-  ])("polls every 30 seconds while a run waits for approval: approvals tend to come soon after the request", (facts, delay) => {
-    expect(pollDelay(facts, NOW)).toBe(delay);
-  });
-
-  test.each([
-    aFacts({ review: "REVIEW_REQUIRED" }),
-    aFacts(),
-    aFacts({ branch: "BEHIND" }),
-  ])("polls every minute while waiting on people", (facts) => {
-    expect(pollDelay(facts, NOW)).toBe(60_000);
+    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, true, quiet)).toBe(30_000);
+    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, NOW - 3_600_000)).toBe(30_000);
   });
 });
 
@@ -388,23 +374,6 @@ describe("alignedDelay", () => {
   test("never polls almost immediately again", () => {
     const base = Date.parse("2026-10-14T10:00:00Z");
     expect(alignedDelay(base + 59_000, 60_000)).toBe(61_000);
-  });
-  test("a session's slot spreads it over the minute: its watches still check together", () => {
-    const base = Date.parse("2026-10-14T10:00:00Z");
-    const at = (now: number, interval: number, slot: number) => now + alignedDelay(now, interval, slot);
-    expect(at(base + 13_000, 60_000, 2)).toBe(base + 30_000);
-    expect(at(base + 40_000, 60_000, 2)).toBe(base + 90_000);
-    expect(at(base, 30_000, 1)).toBe(base + 7_500);
-    expect(at(base + 2_000, 30_000, 1)).toBe(base + 37_500);
-    expect(at(base + 2 * 60_000, 5 * 60_000, 3)).toBe(base + 5 * 60_000 + 45_000);
-  });
-});
-
-describe("sessionSlot: which of the four slots in a minute a session checks in", () => {
-  test("the same for every watch of a session, and spread across sessions", () => {
-    expect(sessionSlot("ses_a")).toBe(sessionSlot("ses_a"));
-    const slots = new Set(Array.from({ length: 40 }, (_, i) => sessionSlot(`ses_${i}`)));
-    expect([...slots].sort()).toEqual([0, 1, 2, 3]);
   });
 });
 
@@ -492,7 +461,7 @@ describe("pollDelay with a run followed on the PR", () => {
   const NOW_ = Date.parse("2026-11-19T10:00:00Z");
   const waitingForReview = { review: "REVIEW_REQUIRED" as const };
 
-  test("every 30 seconds while the run goes, back to waiting on people once it has finished", () => {
+  test("every 30 seconds while the run goes, and after it has finished", () => {
     const running = aFacts({ ...waitingForReview, attachedRuns: [{ run: 1, workflow: "MAIN", state: "RUNNING", url: "u" }] });
     const done = aFacts({ ...waitingForReview, attachedRuns: [{ run: 1, workflow: "MAIN", state: "SUCCEEDED", url: "u" }] });
     expect(pollDelay(running, NOW_)).toBe(30_000);

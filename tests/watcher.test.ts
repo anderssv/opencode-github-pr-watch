@@ -35,7 +35,7 @@ describe("tick: fixed events, no model", () => {
 
     const first = await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) }), ports, settings());
     expect(first.stop).toBe(false);
-    expect(first.delayMs).toBe(60_000 - (NOW % 60_000) || 60_000);
+    expect(first.delayMs).toBe(30_000 - (NOW % 30_000) || 30_000);
     expect(ports.notifications).toHaveLength(1);
     expect(ports.notifications[0]!.text).toContain("approved");
     expect(ports.notifications[0]!.text).toContain("ready to merge");
@@ -140,7 +140,7 @@ describe("tick: the commit a branch update creates", () => {
 });
 
 describe("tick: waiting", () => {
-  test("keeps waiting for review well past 30 minutes, polling every minute", async () => {
+  test("keeps waiting for review well past 30 minutes, polling every 30 seconds", async () => {
     const facts = aFacts({ review: "REVIEW_REQUIRED" });
     const ports = fakePorts({ snapshots: [aSnapshot("waiting", { review: "REVIEW_REQUIRED" })] });
 
@@ -151,7 +151,7 @@ describe("tick: waiting", () => {
     );
 
     expect(result.stop).toBe(false);
-    expect(result.delayMs).toBe(60_000);
+    expect(result.delayMs).toBe(30_000);
     expect(ports.notifications).toEqual([]);
   });
 

@@ -3,11 +3,10 @@ import { commentEvents } from "./comments";
 import { nextStep, type PrFacts, type Step } from "./pr-facts";
 
 const MINUTE = 60_000;
-// Cheap since unchanged REST answers (304) are free and PR state comes in one GraphQL call for all due watches.
-const ACTIVE_POLL_MS = 30_000;
-const WAITING_POLL_MS = MINUTE;
+// Every watch is checked every 30 seconds, all at the same moment: the PRs come in one batched GraphQL read (no ETags
+// there), and REST answers that haven't changed come back as free 304s. Waiting on people costs the same as a build.
+const POLL_MS = 30_000;
 const IDLE_POLL_MS = 5 * MINUTE;
-const PAUSED_POLL_MS = 30_000;
 const IDLE_AFTER_MS = 24 * 60 * MINUTE;
 // Right after `gh run rerun` or `gh pr update-branch`, GitHub can still report the state the command is replacing
 // for a little while. A watch started by such a command ignores those stale states for this long.
@@ -27,7 +26,6 @@ const GRACE_MS: Record<Trigger, number> = { rerun: TRIGGER_GRACE_MS, "update-bra
 
 // Steps where nothing happens until a person acts (review, merge, branch update, environment approval, rerun).
 // Run approvals aren't here: they tend to come soon after the request, so they're checked every minute.
-const WAITING_ON_PEOPLE = new Set<Step>(["DRAFT", "RESOLVE_CONFLICT", "FIX_CHECKS", "ADDRESS_REVIEW", "UPDATE_BRANCH", "NEEDS_REVIEW", "READY"]);
 
 export function events(prev: PrFacts | undefined, next: PrFacts, now: number): string[] {
   if (!prev) return [];
@@ -244,18 +242,10 @@ export function reminderDue(facts: PrFacts, phaseSince: number, lastReminderAt: 
   return !isWeekend(now) && workingMs(lastReminderAt ?? phaseSince, now) >= REMINDER_EVERY_MS;
 }
 
-export function pollDelay(facts: PrFacts, now: number, awaitingNewRun = false, lastChangeAt?: number): number {
-  if (awaitingNewRun) return ACTIVE_POLL_MS;
+export function pollDelay(_facts: PrFacts, now: number, awaitingNewRun = false, lastChangeAt?: number): number {
   // Watches now live until the PR is done, so one that has been quiet for a day is checked less often.
-  if (lastChangeAt !== undefined && now - lastChangeAt > IDLE_AFTER_MS) return IDLE_POLL_MS;
-  // Paused checks go on as soon as someone approves, often right after being asked, so they're looked at twice a minute.
-  const paused = nextStep(facts, now);
-  if (paused === "CHECKS_WAITING" || paused === "CHECKS_BLOCKED") return PAUSED_POLL_MS;
-  if (facts.attachedRuns?.some((run) => run.state === "RUNNING" || run.state === "WAITING")) return ACTIVE_POLL_MS;
-  const step = nextStep(facts, now);
-  // GitHub merges within a minute or two once an auto-merge PR is ready, so that is checked like a running pipeline.
-  if (step === "READY" && facts.autoMerge) return ACTIVE_POLL_MS;
-  return WAITING_ON_PEOPLE.has(step) ? WAITING_POLL_MS : ACTIVE_POLL_MS;
+  if (!awaitingNewRun && lastChangeAt !== undefined && now - lastChangeAt > IDLE_AFTER_MS) return IDLE_POLL_MS;
+  return POLL_MS;
 }
 
 export function stuckJobs(facts: PrFacts, now: number, limitMs: number): string[] {
@@ -266,21 +256,9 @@ export function stuckJobs(facts: PrFacts, now: number, limitMs: number): string[
 
 // Polls snap to wall-clock multiples of their interval, so separate watches report together and land in one digest.
 // A slot closer than a quarter interval away is skipped.
-// A slot (0-3) shifts the grid by a quarter of a minute (or of the interval, when shorter), so the sessions' checks
-// are spread over four moments instead of all starting on the same second.
-export function alignedDelay(now: number, intervalMs: number, slot = 0): number {
-  const offset = (slot * Math.min(intervalMs, 60_000)) / SLOTS;
-  const next = Math.ceil((now - offset + intervalMs / 4) / intervalMs) * intervalMs + offset;
+export function alignedDelay(now: number, intervalMs: number): number {
+  const next = Math.ceil((now + intervalMs / 4) / intervalMs) * intervalMs;
   return next - now;
-}
-
-const SLOTS = 4;
-
-/** The same slot for every watch of a session, so its messages still come together. */
-export function sessionSlot(sessionID: string): number {
-  let hash = 0;
-  for (const char of sessionID) hash = (hash * 31 + char.charCodeAt(0)) | 0;
-  return Math.abs(hash) % SLOTS;
 }
 
 const isWeekend = (time: number) => [0, 6].includes(new Date(time).getDay());
