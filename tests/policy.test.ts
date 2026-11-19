@@ -303,27 +303,27 @@ describe("reminderDue", () => {
 });
 
 describe("pollDelay", () => {
-  test("a watch with no change for a day is checked every 30 minutes, whatever it waits for", () => {
+  test("a watch with no change for a day is checked every 5 minutes, whatever it waits for", () => {
     const quiet = NOW - 25 * 3_600_000;
-    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, quiet)).toBe(30 * 60_000);
-    expect(pollDelay(aFacts({ checks: "PENDING" }), NOW, false, quiet)).toBe(30 * 60_000);
-    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, NOW - 3_600_000)).toBe(5 * 60_000);
+    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, quiet)).toBe(5 * 60_000);
+    expect(pollDelay(aFacts({ checks: "PENDING" }), NOW, false, quiet)).toBe(5 * 60_000);
+    expect(pollDelay(aFacts({ review: "REVIEW_REQUIRED" }), NOW, false, NOW - 3_600_000)).toBe(60_000);
   });
 
   test.each([
-    [aFacts({ checks: "PENDING" }), 60_000],
-    [merged({ deploy: "RUNNING" }), 60_000],
-    [merged({ deploy: "NO_RUNS" }), 60_000],
-    [aFacts({ autoMerge: true }), 60_000],
-  ])("polls every minute while things are moving", (facts, delay) => {
+    [aFacts({ checks: "PENDING" }), 30_000],
+    [merged({ deploy: "RUNNING" }), 30_000],
+    [merged({ deploy: "NO_RUNS" }), 30_000],
+    [aFacts({ autoMerge: true }), 30_000],
+  ])("polls every 30 seconds while things are moving", (facts, delay) => {
     expect(pollDelay(facts, NOW)).toBe(delay);
   });
 
   test.each([
     [aFacts({ checks: "PENDING", waitingChecks: ["Plan"] }), 30_000],
     [aFacts({ checks: "PASS", blockedChecks: [{ workflow: "W", title: "t", url: "u", since: 0 }] }), 30_000],
-    [merged({ deploy: "WAITING" }), 60_000],
-  ])("polls every minute while a run waits for approval: approvals tend to come soon after the request", (facts, delay) => {
+    [merged({ deploy: "WAITING" }), 30_000],
+  ])("polls every 30 seconds while a run waits for approval: approvals tend to come soon after the request", (facts, delay) => {
     expect(pollDelay(facts, NOW)).toBe(delay);
   });
 
@@ -331,8 +331,8 @@ describe("pollDelay", () => {
     aFacts({ review: "REVIEW_REQUIRED" }),
     aFacts(),
     aFacts({ branch: "BEHIND" }),
-  ])("polls every five minutes while waiting on people", (facts) => {
-    expect(pollDelay(facts, NOW)).toBe(5 * 60_000);
+  ])("polls every minute while waiting on people", (facts) => {
+    expect(pollDelay(facts, NOW)).toBe(60_000);
   });
 });
 
@@ -361,8 +361,8 @@ describe("stillAwaiting", () => {
 });
 
 describe("pollDelay while awaiting a new run", () => {
-  test("checks every minute", () => {
-    expect(pollDelay(aFacts({ checks: "FAIL" }), NOW, true)).toBe(60_000);
+  test("checks every 30 seconds", () => {
+    expect(pollDelay(aFacts({ checks: "FAIL" }), NOW, true)).toBe(30_000);
   });
 });
 
@@ -372,7 +372,7 @@ describe("waiting for an earlier deploy", () => {
 
     expect(phaseOf(facts, NOW)).toEqual({ phase: "base-deploy" });
     expect(overdue(facts, { phaseSince: NOW - 31 * 60_000, now: NOW })).toContain("Audit Log Archive");
-    expect(pollDelay(facts, NOW)).toBe(60_000);
+    expect(pollDelay(facts, NOW)).toBe(30_000);
   });
 });
 
@@ -475,10 +475,10 @@ describe("pollDelay with a run followed on the PR", () => {
   const NOW_ = Date.parse("2026-11-19T10:00:00Z");
   const waitingForReview = { review: "REVIEW_REQUIRED" as const };
 
-  test("every minute while the run goes, back to waiting on people once it has finished", () => {
+  test("every 30 seconds while the run goes, back to waiting on people once it has finished", () => {
     const running = aFacts({ ...waitingForReview, attachedRuns: [{ run: 1, workflow: "MAIN", state: "RUNNING", url: "u" }] });
     const done = aFacts({ ...waitingForReview, attachedRuns: [{ run: 1, workflow: "MAIN", state: "SUCCEEDED", url: "u" }] });
-    expect(pollDelay(running, NOW_)).toBe(60_000);
+    expect(pollDelay(running, NOW_)).toBe(30_000);
     expect(pollDelay(done, NOW_)).toBe(pollDelay(aFacts(waitingForReview), NOW_));
   });
 });

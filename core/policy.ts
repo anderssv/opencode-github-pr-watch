@@ -3,9 +3,10 @@ import { commentEvents } from "./comments";
 import { nextStep, type PrFacts, type Step } from "./pr-facts";
 
 const MINUTE = 60_000;
-const ACTIVE_POLL_MS = MINUTE;
-const WAITING_POLL_MS = 5 * MINUTE;
-const IDLE_POLL_MS = 30 * MINUTE;
+// Cheap since unchanged REST answers (304) are free and PR state comes in one GraphQL call for all due watches.
+const ACTIVE_POLL_MS = 30_000;
+const WAITING_POLL_MS = MINUTE;
+const IDLE_POLL_MS = 5 * MINUTE;
 const PAUSED_POLL_MS = 30_000;
 const IDLE_AFTER_MS = 24 * 60 * MINUTE;
 // Right after `gh run rerun` or `gh pr update-branch`, GitHub can still report the state the command is replacing

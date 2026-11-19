@@ -21,7 +21,8 @@ function staleness(watch: Watch, now?: number): string {
   if (now === undefined || watch.lastCheckedAt === undefined || !watch.lastFacts) return "";
   const interval = pollDelay(watch.lastFacts, watch.lastCheckedAt, watch.awaiting !== undefined);
   const age = now - watch.lastCheckedAt;
-  return age > 2 * interval ? ` (STALE: last checked ${Math.round(age / 60_000)} min ago)` : "";
+  // At least 5 minutes: with checks every 30 seconds, one slow batched read isn't a stuck watch.
+  return age > Math.max(2 * interval, 5 * 60_000) ? ` (STALE: last checked ${Math.round(age / 60_000)} min ago)` : "";
 }
 
 export function formatWatch(watch: Watch, tail?: number, now?: number): string {

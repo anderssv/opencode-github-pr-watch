@@ -63,3 +63,18 @@ describe("conditionalGet: an unchanged answer costs nothing", () => {
     expect(sent).toEqual(['"v0"', undefined]);
   });
 });
+
+describe("conditionalGet: a missing file isn't asked for again for an hour", () => {
+  test("a 404 is kept and answered from memory, then asked again", async () => {
+    let now = 0;
+    const kept: EtagStore = new Map();
+    let calls = 0;
+    const fetch = async () => (calls++, raw("404 Not Found", {}, '{"message":"Not Found"}'));
+    await expect(conditionalGet(kept, "k", fetch, () => now)).rejects.toThrow("Not Found (HTTP 404)");
+    await expect(conditionalGet(kept, "k", fetch, () => now)).rejects.toThrow("Not Found (HTTP 404)");
+    expect(calls).toBe(1);
+    now = 60 * 60_000 + 1;
+    await expect(conditionalGet(kept, "k", fetch, () => now)).rejects.toThrow("Not Found (HTTP 404)");
+    expect(calls).toBe(2);
+  });
+});

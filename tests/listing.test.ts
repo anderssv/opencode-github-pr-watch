@@ -89,18 +89,18 @@ describe("formatWatch", () => {
 
   test("flags a watch whose last check is more than twice its poll interval ago", () => {
     const checked = Date.UTC(2026, 9, 15, 8, 35, 0);
-    // A running build is polled every minute.
+    // A running build is polled every 30 seconds; stale after 5 minutes at the least.
     const watch = aWatch({ lastSnapshot: snapshot, lastCheckedAt: checked, lastFacts: aFacts({ checks: "PENDING" }) });
 
     expect(formatWatch(watch, undefined, checked + 7 * 60_000)).toContain("STALE: last checked 7 min ago");
     expect(formatWatch(watch, undefined, checked + 90_000)).not.toContain("STALE");
   });
 
-  test("allows a watch waiting on people its longer interval", () => {
+  test("a watch waiting on people, polled every minute, is stale after 5 minutes too", () => {
     const checked = Date.UTC(2026, 9, 15, 8, 35, 0);
     const watch = aWatch({ lastSnapshot: snapshot, lastCheckedAt: checked, lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) });
 
-    expect(formatWatch(watch, undefined, checked + 7 * 60_000)).not.toContain("STALE");
+    expect(formatWatch(watch, undefined, checked + 4 * 60_000)).not.toContain("STALE");
     expect(formatWatch(watch, undefined, checked + 11 * 60_000)).toContain("STALE: last checked 11 min ago");
   });
 });

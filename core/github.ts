@@ -70,7 +70,7 @@ const execGhRaw: Gh = (args, cwd) =>
     });
   });
 
-const etags = sharedMap<{ etag: string; body: string }>("etags/1");
+const etags = sharedMap<{ etag: string; body: string } | { missingUntil: number; message: string }>("etags/2");
 
 /** A plain GET is asked with the last answer's ETag; an unchanged answer (304) is free. Anything else as it is. */
 const execConditional: Gh = (args, cwd) =>

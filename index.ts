@@ -417,7 +417,7 @@ export default Plugin.define({
     // The gh user, to tell their PRs from others' among the watched ones; read once.
     let login: Promise<string> | undefined;
     const ghUser = () => {
-      login ??= runGh(["api", "user", "--jq", ".login"], directory).then((text) => text.trim());
+      login ??= shared.callCache.get("gh-user", 6 * 60 * 60_000, () => runGh(["api", "user", "--jq", ".login"], directory).then((text) => text.trim()));
       login.catch(() => (login = undefined));
       return login;
     };
@@ -631,7 +631,7 @@ export default Plugin.define({
         await ctx.storage.set(KEY_PREFIX + id, saved as never);
         changed(saved.sessionID, id);
         const runAttached = (saved.runs?.length ?? 0) > (result.watch.runs?.length ?? 0);
-        // A run attached during the check is read right away instead of at the next (possibly 5-minute) check.
+        // A run attached during the check is read right away instead of at the next (possibly a minute away) check.
         delayMs = runAttached ? 0 : result.delayMs > 0 ? alignedDelay(Date.now(), result.delayMs) : result.delayMs;
       } catch (err) {
         // The boundary for a check: whatever failed below, this watch keeps going and tries again shortly.

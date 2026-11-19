@@ -2,7 +2,10 @@
  * Conditional REST requests: GitHub answers "304 Not Modified" to a request carrying the last answer's ETag when
  * nothing changed, and a 304 doesn't count against the rate limit. Every plain `gh api <path>` GET goes through here.
  */
-export type EtagStore = Map<string, { readonly etag: string; readonly body: string }>;
+export type EtagStore = Map<string, { readonly etag: string; readonly body: string } | { readonly missingUntil: number; readonly message: string }>;
+
+// A path that doesn't exist (a workflow file not on the base branch) has no ETag; it is kept as missing for an hour.
+const MISSING_FOR_MS = 60 * 60_000;
 
 export interface HttpAnswer {
   readonly status: number;
@@ -34,8 +37,13 @@ const MAX_KEPT = 2_000;
  * An error status throws with GitHub's message, worded like gh's own errors so the rate-limit and network checks
  * recognise it.
  */
-export async function conditionalGet(store: EtagStore, key: string, fetch: (etag?: string) => Promise<string>): Promise<string> {
-  const kept = store.get(key);
+export async function conditionalGet(store: EtagStore, key: string, fetch: (etag?: string) => Promise<string>, now: () => number = Date.now): Promise<string> {
+  const entry = store.get(key);
+  if (entry && "missingUntil" in entry) {
+    if (entry.missingUntil > now()) throw new Error(entry.message);
+    store.delete(key);
+  }
+  const kept = entry && "etag" in entry ? entry : undefined;
   let answer = parseHttp(await fetch(kept?.etag));
   if (answer.status === 304 && kept?.body !== undefined) return kept.body;
   if (answer.status === 304) answer = parseHttp(await fetch());
@@ -53,5 +61,7 @@ export async function conditionalGet(store: EtagStore, key: string, fetch: (etag
   } catch {
     // Not JSON: keep the text.
   }
-  throw new Error(`gh: ${message} (HTTP ${answer.status})`);
+  const error = `gh: ${message} (HTTP ${answer.status})`;
+  if (answer.status === 404) store.set(key, { missingUntil: now() + MISSING_FOR_MS, message: error });
+  throw new Error(error);
 }
