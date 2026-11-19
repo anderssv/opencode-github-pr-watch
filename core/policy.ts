@@ -266,9 +266,21 @@ export function stuckJobs(facts: PrFacts, now: number, limitMs: number): string[
 
 // Polls snap to wall-clock multiples of their interval, so separate watches report together and land in one digest.
 // A slot closer than a quarter interval away is skipped.
-export function alignedDelay(now: number, intervalMs: number): number {
-  const next = Math.ceil((now + intervalMs / 4) / intervalMs) * intervalMs;
+// A slot (0-3) shifts the grid by a quarter of a minute (or of the interval, when shorter), so the sessions' checks
+// are spread over four moments instead of all starting on the same second.
+export function alignedDelay(now: number, intervalMs: number, slot = 0): number {
+  const offset = (slot * Math.min(intervalMs, 60_000)) / SLOTS;
+  const next = Math.ceil((now - offset + intervalMs / 4) / intervalMs) * intervalMs + offset;
   return next - now;
+}
+
+const SLOTS = 4;
+
+/** The same slot for every watch of a session, so its messages still come together. */
+export function sessionSlot(sessionID: string): number {
+  let hash = 0;
+  for (const char of sessionID) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  return Math.abs(hash) % SLOTS;
 }
 
 const isWeekend = (time: number) => [0, 6].includes(new Date(time).getDay());

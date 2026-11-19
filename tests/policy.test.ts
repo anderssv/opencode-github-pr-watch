@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { nextStep } from "../core/pr-facts";
-import { approvalText, approvalWait, endReason, overdue, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay } from "../core/policy";
+import { approvalText, approvalWait, endReason, overdue, problemOf, events, phaseOf, pollDelay, reminderDue, startDecision, stillAwaiting, stuckJobs, workingMs, type EndInput, alignedDelay, sessionSlot } from "../core/policy";
 import type { PrFacts } from "../core/pr-facts";
 import { suggestionFor } from "../core/advice";
 import { aFacts } from "./mothers";
@@ -388,6 +388,23 @@ describe("alignedDelay", () => {
   test("never polls almost immediately again", () => {
     const base = Date.parse("2026-10-14T10:00:00Z");
     expect(alignedDelay(base + 59_000, 60_000)).toBe(61_000);
+  });
+  test("a session's slot spreads it over the minute: its watches still check together", () => {
+    const base = Date.parse("2026-10-14T10:00:00Z");
+    const at = (now: number, interval: number, slot: number) => now + alignedDelay(now, interval, slot);
+    expect(at(base + 13_000, 60_000, 2)).toBe(base + 30_000);
+    expect(at(base + 40_000, 60_000, 2)).toBe(base + 90_000);
+    expect(at(base, 30_000, 1)).toBe(base + 7_500);
+    expect(at(base + 2_000, 30_000, 1)).toBe(base + 37_500);
+    expect(at(base + 2 * 60_000, 5 * 60_000, 3)).toBe(base + 5 * 60_000 + 45_000);
+  });
+});
+
+describe("sessionSlot: which of the four slots in a minute a session checks in", () => {
+  test("the same for every watch of a session, and spread across sessions", () => {
+    expect(sessionSlot("ses_a")).toBe(sessionSlot("ses_a"));
+    const slots = new Set(Array.from({ length: 40 }, (_, i) => sessionSlot(`ses_${i}`)));
+    expect([...slots].sort()).toEqual([0, 1, 2, 3]);
   });
 });
 
