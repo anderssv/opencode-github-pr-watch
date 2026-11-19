@@ -1,4 +1,5 @@
 import type { PrRead } from "./pr-batch";
+import type { CallCache } from "./call-cache";
 import type { GhPriority } from "./gh-queue";
 import { existsSync } from "node:fs";
 import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-binary";
@@ -10,7 +11,7 @@ import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summ
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { COMMENTS_QUERY, parseComments, type CommentRead } from "./comments";
 import { budgetOf, classifyGhError, healthAfter, pausedText } from "./github-health";
-import { processState } from "./runtime";
+import { processState, sharedMap } from "./runtime";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
 import { runFacts } from "./run-facts";
 import { planSummary, type TerraformPlan } from "./terraform";
@@ -127,7 +128,10 @@ async function apiJson<T>(gh: Gh, path: string, cwd: string): Promise<T | undefi
  * The checks the base branch requires before a merge, from classic branch protection and rulesets.
  * A source that can't be read contributes nothing rather than failing the snapshot.
  */
-export async function requiredChecks(gh: Gh, repo: string, base: string, cwd: string): Promise<string[]> {
+export const requiredChecks = (gh: Gh, repo: string, base: string, cwd: string): Promise<string[]> =>
+  cached(`required:${repo}@${base}`, 10 * 60_000, () => readRequiredChecks(gh, repo, base, cwd));
+
+async function readRequiredChecks(gh: Gh, repo: string, base: string, cwd: string): Promise<string[]> {
   const branch = await apiJson<{ protection?: { required_status_checks?: { contexts?: string[] } } }>(
     gh, `repos/${repo}/branches/${base}`, cwd,
   );
@@ -392,13 +396,13 @@ export async function expectedChecksApproval(gh: Gh, repo: string, base: string,
   return (await readChecksApproval(gh, repo, base, cwd, guess)).approval;
 }
 
-const checksApprovals = new Map<string, { at: number; approval: string[] }>();
+const checksApprovals = sharedMap<{ until: number; approval: string[] }>("checks-approvals/2");
 async function cachedChecksApproval(gh: Gh, repo: string, base: string, cwd: string, now: number, guess?: EnvironmentGuess): Promise<string[]> {
   const key = `${repo}@${base}`;
   const kept = checksApprovals.get(key);
-  if (kept && now - kept.at < EXPECTED_FOR_MS) return kept.approval;
+  if (kept && now < kept.until) return kept.approval;
   const read = await readChecksApproval(gh, repo, base, cwd, guess);
-  if (read.complete) checksApprovals.set(key, { at: now, approval: read.approval });
+  checksApprovals.set(key, { until: now + (read.complete ? EXPECTED_FOR_MS : INCOMPLETE_FOR_MS), approval: read.approval });
   return read.approval;
 }
 
@@ -406,22 +410,31 @@ export async function expectedDeploy(gh: Gh, repo: string, base: string, cwd: st
   return (await readExpectedDeploy(gh, repo, base, cwd, roleOf)).expected;
 }
 
-// Read once per repo and base branch for six hours; a read with a role still unknown is not kept, so it's asked again.
+// Read once per repo and base branch for six hours; a read with a model answer missing is kept for ten minutes, then
+// asked again (reading every workflow file again on every check spent most of the REST budget).
 const EXPECTED_FOR_MS = 6 * 60 * 60_000;
-const expectations = new Map<string, { at: number; expected: ExpectedDeploy | undefined }>();
+const INCOMPLETE_FOR_MS = 10 * 60_000;
+const expectations = sharedMap<{ until: number; expected: ExpectedDeploy | undefined }>("expected-deploys/2");
 async function cachedExpectedDeploy(gh: Gh, repo: string, base: string, cwd: string, roleOf: RoleLookup, now: number): Promise<ExpectedDeploy | undefined> {
   const key = `${repo}@${base}`;
   const kept = expectations.get(key);
-  if (kept && now - kept.at < EXPECTED_FOR_MS) return kept.expected;
+  if (kept && now < kept.until) return kept.expected;
   const read = await readExpectedDeploy(gh, repo, base, cwd, roleOf);
-  if (read.complete) expectations.set(key, { at: now, expected: read.expected });
+  expectations.set(key, { until: now + (read.complete ? EXPECTED_FOR_MS : INCOMPLETE_FOR_MS), expected: read.expected });
   return read.expected;
 }
 
-async function jobsOf(gh: Gh, repo: string, runID: number, cwd: string): Promise<JobView[]> {
-  const { jobs }: { jobs: JobView[] } = JSON.parse(await gh(["run", "view", String(runID), "--repo", repo, "--json", "jobs"], cwd));
-  return jobs.map(({ name, status, conclusion, startedAt }) => ({ name, status, conclusion, startedAt }));
-}
+// A run whose jobs have all finished can't change (a rerun counts as a new attempt, read through the run list).
+const jobsOf = (gh: Gh, repo: string, runID: number, cwd: string): Promise<JobView[]> =>
+  cached(`jobs:${repo}:${runID}`, (jobs: JobView[]) => (jobs.length > 0 && jobs.every((j) => j.status === "completed") ? 6 * 60 * 60_000 : SHARED_MS), async () => {
+    const { jobs }: { jobs: JobView[] } = JSON.parse(await gh(["run", "view", String(runID), "--repo", repo, "--json", "jobs"], cwd));
+    return jobs.map(({ name, status, conclusion, startedAt }) => ({ name, status, conclusion, startedAt }));
+  });
+
+/** The runs on a commit, shared for a few seconds by the checks that ask for them. */
+const runsOnCommit = (gh: Gh, repo: string, sha: string, cwd: string): Promise<{ databaseId: number; workflowName: string; workflowDatabaseId: number; status: string; event: string }[]> =>
+  cached(`runs:${repo}@${sha}`, SHARED_MS, async () =>
+    JSON.parse(await gh(["run", "list", "--repo", repo, "--commit", sha, "--json", "databaseId,workflowName,workflowDatabaseId,status,event"], cwd)));
 
 async function failedLogTail(gh: Gh, repo: string, runID: number, cwd: string): Promise<string> {
   try {
@@ -462,19 +475,18 @@ export async function prForRun(gh: Gh, repo: string, runID: string, cwd: string)
 
 async function runningWorkflows(gh: Gh, repo: string, sha: string | undefined, cwd: string): Promise<string[]> {
   if (!sha) return [];
-  const runs: { workflowName: string; status: string }[] = JSON.parse(
-    await gh(["run", "list", "--repo", repo, "--commit", sha, "--json", "workflowName,status"], cwd),
-  );
+  const runs = await runsOnCommit(gh, repo, sha, cwd);
   return [...new Set(runs.filter((r) => r.status !== "completed").map((r) => r.workflowName))];
 }
 
 async function runningBaseDeploys(gh: Gh, repo: string, base: string, cwd: string): Promise<RunWithJobs[]> {
-  const listed: RunView[] = JSON.parse(
-    await gh(
-      ["run", "list", "--repo", repo, "--branch", base, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,event,createdAt,url"],
-      cwd,
-    ),
-  );
+  const listed: RunView[] = await cached(`base-runs:${repo}@${base}`, SHARED_MS, async () =>
+    JSON.parse(
+      await gh(
+        ["run", "list", "--repo", repo, "--branch", base, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,status,conclusion,event,createdAt,url"],
+        cwd,
+      ),
+    ));
   const running = listed.filter((run) => run.status !== "completed");
   return Promise.all(running.map(async (run) => ({ ...run, jobs: await jobsOf(gh, repo, run.databaseId, cwd) })));
 }
@@ -608,7 +620,7 @@ export async function runProgress(gh: Gh, repo: string, runID: number, cwd: stri
 
 // GitHub lists a job only once it is about to run, so a building pipeline doesn't show its deploy jobs yet. Its last
 // successful merge run tells whether it deploys. Cached per process: a workflow's shape rarely changes.
-const deploysCache = new Map<string, boolean>();
+const deploysCache = sharedMap<boolean>("usually-deploys/1");
 
 async function workflowUsuallyDeploys(gh: Gh, repo: string, workflow: number, cwd: string): Promise<boolean> {
   const key = `${repo}/${workflow}`;
@@ -694,7 +706,7 @@ export async function blockingRun(gh: Gh, repo: string, queued: { databaseId: nu
 }
 
 // A finished job's log never changes; a rerun gets new job ids.
-const planCache = new Map<string, string | null>();
+const planCache = sharedMap<string | null>("plans/1");
 
 /** Terraform plan summaries from the PR's finished jobs; each job's log is read once. */
 export async function finishedRunPlans(gh: Gh, repo: string, rollup: readonly CheckView[], cwd: string): Promise<TerraformPlan[]> {
@@ -742,9 +754,7 @@ export async function myMergedPrs(gh: Gh, since: string, cwd: string): Promise<M
  * (one run per workflow at a time), with the run ahead of each.
  */
 export async function blockedChecks(gh: Gh, repo: string, headSha: string, cwd: string): Promise<NonNullable<PrFacts["blockedChecks"]>> {
-  const runs: { databaseId: number; workflowName: string; workflowDatabaseId: number; status: string }[] = JSON.parse(
-    await gh(["run", "list", "--repo", repo, "--commit", headSha, "--json", "databaseId,workflowName,workflowDatabaseId,status,event"], cwd),
-  );
+  const runs = await runsOnCommit(gh, repo, headSha, cwd);
   const queued = runs.filter((run) => ["pending", "queued", "requested"].includes(run.status));
   const blocked = await Promise.all(
     queued.map(async (run) => {
@@ -754,4 +764,13 @@ export async function blockedChecks(gh: Gh, repo: string, headSha: string, cwd: 
     }),
   );
   return blocked.filter((b): b is NonNullable<typeof b> => b !== undefined);
+}
+
+// The plugin switches the shared cache on; without it (tests, scripts) every call is made.
+let callCache: CallCache | undefined;
+export const useCallCache = (cache: CallCache | undefined) => void (callCache = cache);
+/** Long enough for the watches checked at the same moment to share an answer, short enough to see a change at the next check. */
+const SHARED_MS = 20_000;
+function cached<T>(key: string, ttlMs: number | ((value: T) => number), read: () => Promise<T>): Promise<T> {
+  return callCache ? callCache.get(key, ttlMs, read) : read();
 }

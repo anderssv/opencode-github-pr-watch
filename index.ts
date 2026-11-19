@@ -19,7 +19,7 @@ import { Plugin } from "@opencode/plugin";
 import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPrompt, parseBotAdvice, parseDiagnosis, refreshHistory } from "./core/advice";
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
 import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
-import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst, type ReadPr } from "./core/github";
+import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst, type ReadPr, useCallCache } from "./core/github";
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory, findGitPushes, findPrCreates, prUrlsIn } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
@@ -437,6 +437,7 @@ export default Plugin.define({
     );
     const owning = () => ownsPolling(shared, directory, owner);
     // Shared by every instance in the process, so PRs checked at the same moment share one call whichever directory they're in.
+    useCallCache(shared.callCache);
     shared.prReaders ??= { first: new PrBatcher(runGhFirst, 200), background: new PrBatcher(runGh, 1_000) };
     const readPr = (priority: "first" | "background"): ReadPr => (repo, pr, cwd) => processState().prReaders![priority].read(repo, pr, cwd);
     registerDeliverer(shared.outbox, owner, deliverQueued);

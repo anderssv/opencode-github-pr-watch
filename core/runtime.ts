@@ -2,6 +2,7 @@ import type { GithubHealth } from "./github-health";
 import { newOutbox, type Outbox } from "./outbox";
 import { GhQueue } from "./gh-queue";
 import type { PrBatcher } from "./pr-batch";
+import { CallCache } from "./call-cache";
 
 /** GitHub calls running at once, across every watch in the process. */
 export const GH_CONCURRENCY = 6;
@@ -31,9 +32,19 @@ export interface ProcessState {
   readonly ghQueue: GhQueue;
   /** Batched PR reads (one GraphQL call for the PRs asked for together), per priority; made by the plugin. */
   prReaders?: { readonly first: PrBatcher; readonly background: PrBatcher };
+  /** GitHub answers kept for a while, shared by every watch; switched on by the plugin. */
+  readonly callCache: CallCache;
+  /** Caches kept by name, so a reload (which imports the modules afresh) doesn't empty them. */
+  readonly maps: Map<string, Map<string, unknown>>;
 }
 
-export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map(), checking: new Set(), outbox: newOutbox(), ghQueue: new GhQueue(GH_CONCURRENCY) });
+export function sharedMap<V>(name: string): Map<string, V> {
+  const maps = processState().maps;
+  if (!maps.has(name)) maps.set(name, new Map());
+  return maps.get(name) as Map<string, V>;
+}
+
+export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map(), checking: new Set(), outbox: newOutbox(), ghQueue: new GhQueue(GH_CONCURRENCY), callCache: new CallCache(), maps: new Map() });
 
 const KEY = Symbol.for("opencode-pr-watch/process");
 
@@ -47,6 +58,8 @@ export const processState = (): ProcessState => {
   (state as { checking?: ProcessState["checking"] }).checking ??= new Set();
   (state as { outbox?: ProcessState["outbox"] }).outbox ??= newOutbox();
   (state as { ghQueue?: ProcessState["ghQueue"] }).ghQueue ??= new GhQueue(GH_CONCURRENCY);
+  (state as { callCache?: ProcessState["callCache"] }).callCache ??= new CallCache();
+  (state as { maps?: ProcessState["maps"] }).maps ??= new Map();
   return state;
 };
 
