@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { PrBatcher, toPrView } from "../core/pr-batch";
 import type { Gh } from "../core/github";
+import { pipelineChecks } from "../core/pr-facts";
 
 const prNode = (title: string, extra: Record<string, unknown> = {}) => ({
   headRefOid: "abc", state: "OPEN", isDraft: false, baseRefName: "main", title, url: `https://github.com/o/r/pull/1`,
@@ -116,6 +117,14 @@ describe("toPrView: the GraphQL answer in gh pr view's shape", () => {
       { name: "Build", status: "COMPLETED", conclusion: "SUCCESS", startedAt: "s", detailsUrl: "d", workflowName: "MAIN" },
       { context: "ci/legacy", state: "PENDING", startedAt: "c" },
     ]);
+  });
+
+  test("a check from code scanning (no workflow) gets an empty workflow name, as gh gives it, so it's left out of the pipeline", () => {
+    const view = toPrView(prNode("t", { commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: [
+      { __typename: "CheckRun", name: "Trivy", status: "COMPLETED", conclusion: "NEUTRAL", startedAt: "s", detailsUrl: "d", checkSuite: { workflowRun: null } },
+    ] } } } }] } }));
+    expect(view.statusCheckRollup[0]!.workflowName).toBe("");
+    expect(pipelineChecks(view.statusCheckRollup)).toEqual([]);
   });
 
   test("no commits or no checks: no checks", () => {

@@ -34,7 +34,8 @@ export function toPrView(pr: Node): PrView {
       ? { context: c.context, state: c.state, startedAt: c.createdAt }
       : {
           name: c.name, status: c.status, conclusion: c.conclusion, startedAt: c.startedAt, detailsUrl: c.detailsUrl,
-          ...(c.checkSuite?.workflowRun?.workflow?.name ? { workflowName: c.checkSuite.workflowRun.workflow.name } : {}),
+          // Like gh: "" for a check run outside Actions (code scanning uploads), which the pipeline leaves out.
+          workflowName: c.checkSuite?.workflowRun?.workflow?.name ?? "",
         });
   const reviewers = (pr.reviewRequests?.nodes ?? []).map((n: Node) => n.requestedReviewer).filter(Boolean)
     .map((r: Node) => (r.login ? { login: r.login } : { name: r.name }));
