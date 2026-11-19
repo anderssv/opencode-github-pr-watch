@@ -842,8 +842,10 @@ export async function blockedChecks(gh: Gh, repo: string, headSha: string, cwd: 
 // The plugin switches the shared cache on; without it (tests, scripts) every call is made.
 let callCache: CallCache | undefined;
 export const useCallCache = (cache: CallCache | undefined) => void (callCache = cache);
-/** Long enough for the watches checked at the same moment to share an answer, short enough to see a change at the next check. */
-const SHARED_MS = 20_000;
+// What is still changing (run lists, a running run's jobs) is only shared by calls on their way at the same moment, never
+// kept: keeping a running run's jobs for 20 s while its run list was fresh showed a finished run with a job still running.
+// Asking each time is free when nothing changed (ETag, 304).
+const SHARED_MS = 0;
 function cached<T>(key: string, ttlMs: number | ((value: T) => number), read: () => Promise<T>): Promise<T> {
   return callCache ? callCache.get(key, ttlMs, read) : read();
 }

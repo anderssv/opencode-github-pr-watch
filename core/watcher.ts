@@ -146,6 +146,7 @@ export function judgePrompt(watch: Watch, snapshot: string): string {
     "or components a change didn't touch). Never report a skipped step.",
     "Jobs are created as a run reaches them, and a job list can be partial or ordered differently between two states.",
     "A job missing from one state that was in an earlier one is not news: never report jobs as disappearing or no longer appearing.",
+    "A run shows queued again while its next job waits for a runner, and a run's status can be a moment ahead of its jobs; neither is news.",
     "",
     "Which workflow runs belong to this PR:",
     "- The PR's own outcome is the runs triggered by the merge: event [push], started at or after the merge time.",
