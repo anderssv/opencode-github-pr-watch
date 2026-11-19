@@ -68,6 +68,14 @@ Each check reads the PR and the workflow runs on its merge commit and turns them
 
 A watch on an open PR starts from one quick read of the PR (its state, review and checks), so `watch_pr` with 27 PRs answers in a few seconds. The full check (required checks, runs, Terraform plans, comments, expected deploy) follows right after in the background and becomes the baseline without being reported. Every GitHub call in the process goes through one queue, at most 6 at a time, and starting a watch goes ahead of background checks.
 
+## GitHub's budget
+
+GitHub allows 5,000 REST calls an hour per user, and GraphQL has a budget of its own.
+
+- **PRs checked at the same moment are read in one GraphQL call** (state, review, checks, reviewers, comments), whichever session or folder watches them. Polls line up on the clock, so the watches due together share it.
+- **What can't change is read once:** the jobs of a finished run, Terraform job logs. Required checks are kept 10 minutes, the expected deploy and check approvals 6 hours, the runs on a commit 20 seconds (shared by the watches asking). These survive a reload of the plugin.
+- **When REST's budget runs low** (under 1,000 left), background calls are spread over what is left until the reset, keeping 200 for starts and your own `gh` use; the panel says "GitHub budget low … checks are slowed down". At the reserve, checks wait for the reset. REST and GraphQL are paused separately.
+
 ## Automatic starts
 
 - **`gh pr create`:** the new PR (its link in the command's output) is watched.

@@ -399,6 +399,8 @@ export default Plugin.define({
               <span style={{ "min-width": "0", "overflow-wrap": "anywhere" }}>{running().join(" · ")}</span>
             </Show>
           </div>
+          {/* About every watch, not the list: above the filters, where it's seen first. */}
+          <Show when={store().paused}>{(text) => <div style={{ color: "var(--text-warning, #d29922)" }}>{text()}</div>}</Show>
           <input
             type="search"
             placeholder="Search title, repo or #number"
@@ -523,10 +525,8 @@ export default Plugin.define({
               Current session only
             </label>
           </div>
-          {/* GitHub rate limiting or out of reach pauses every watch; that says more than a load error. */}
-          <Show when={store().paused} fallback={<Show when={error()}>{(text) => <div style={{ color: "var(--text-danger, #c33)" }}>Could not load your PRs: {text()}</div>}</Show>}>
-            {(text) => <div style={{ color: "var(--text-warning, #d29922)" }}>{text()}</div>}
-          </Show>
+          {/* GitHub paused or slowed (shown at the top) says more than a load error. */}
+          <Show when={!store().paused && error()}>{(text) => <div style={{ color: "var(--text-danger, #c33)" }}>Could not load your PRs: {text()}</div>}</Show>
           <Show when={choices().grouping === "topic" && topicsError()}>
             {(text) => <div style={{ opacity: "0.8", "font-size": "12px" }}>Grouped by repo: {text()}</div>}
           </Show>

@@ -1,4 +1,5 @@
 import type { GithubHealth } from "./github-health";
+import type { RestBudget } from "./budget";
 import { newOutbox, type Outbox } from "./outbox";
 import { GhQueue } from "./gh-queue";
 import type { PrBatcher } from "./pr-batch";
@@ -27,6 +28,10 @@ export interface ProcessState {
   github?: GithubHealth;
   /** The same for GraphQL calls, whose budget is separate from REST's. */
   githubGraphql?: GithubHealth;
+  /** REST's budget as last read, when it was read, and the time the last paced call was given. */
+  restBudget?: RestBudget;
+  restBudgetReadAt?: number;
+  lastPacedAt?: number;
   /** Messages waiting to be posted, and the instance that posts them. */
   readonly outbox: Outbox;
   readonly ghQueue: GhQueue;

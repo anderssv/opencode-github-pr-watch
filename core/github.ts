@@ -1,6 +1,7 @@
 import type { PrRead } from "./pr-batch";
 import type { CallCache } from "./call-cache";
 import type { GhPriority } from "./gh-queue";
+import { budgetText, paceDelay, parseRateLimit } from "./budget";
 import { existsSync } from "node:fs";
 import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-binary";
 import { logTail } from "./log-excerpt";
@@ -60,11 +61,40 @@ const execGh: Gh = (args, cwd) =>
 
 // While GitHub is rate limiting or can't be reached, every call is refused at once until the shared pause is over.
 // Every call waits its turn in the process's queue.
+// Reading the budget doesn't count against it; read at most once a minute, and only for REST calls.
+let budgetRead: Promise<void> | undefined;
+const refreshBudget = (cwd: string): Promise<void> => {
+  const state = processState();
+  if (state.restBudgetReadAt !== undefined && Date.now() - state.restBudgetReadAt < 60_000) return Promise.resolve();
+  state.restBudgetReadAt = Date.now();
+  return (budgetRead ??= execGh(["api", "rate_limit"], cwd)
+    .then((json) => void (state.restBudget = parseRateLimit(json)))
+    .catch(() => undefined)
+    .finally(() => (budgetRead = undefined)));
+};
+
+const PACE_AS_PAUSE_MS = 60_000;
+
 const ghCall = (priority: GhPriority): Gh => async (args, cwd) => {
   const state = processState();
-  const key = budgetOf(args) === "graphql" ? "githubGraphql" : "github";
+  const budget = budgetOf(args);
+  const key = budget === "graphql" ? "githubGraphql" : "github";
   const paused = pausedText(state[key], Date.now());
   if (paused) throw new Error(paused);
+  if (budget === "rest") {
+    await refreshBudget(cwd);
+    if (priority === "background") {
+      const now = Date.now();
+      const wait = paceDelay(state.restBudget, now, state.lastPacedAt ?? 0);
+      if (wait > PACE_AS_PAUSE_MS && state.restBudget) {
+        // Down to the reserve: every watch waits for the reset, shown in the panel like being rate limited.
+        state.github = { kind: "rate-limit", until: state.restBudget.resetAt, failures: 0 };
+        throw new Error(pausedText(state.github, now)!);
+      }
+      state.lastPacedAt = now + wait;
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
   try {
     const out = await state.ghQueue.run(priority, () => execGh(args, cwd));
     const health = state[key];
@@ -76,7 +106,11 @@ const ghCall = (priority: GhPriority): Gh => async (args, cwd) => {
   } catch (err) {
     const kind = classifyGhError(err instanceof Error ? err.message : String(err));
     if (kind) {
-      const health = healthAfter(state[key], kind, Date.now());
+      let health = healthAfter(state[key], kind, Date.now());
+      // GitHub says when the budget comes back; waiting for that beats guessing.
+      if (health && kind === "rate-limit" && budget === "rest" && state.restBudget && state.restBudget.resetAt > Date.now()) {
+        health = { ...health, until: state.restBudget.resetAt };
+      }
       state[key] = health;
       if (health) debug("github-paused", { budget: budgetOf(args), kind, until: new Date(health.until).toISOString(), failures: health.failures });
     }
@@ -88,8 +122,12 @@ export const runGh: Gh = ghCall("background");
 /** For what someone is waiting on, such as starting a watch: ahead of background checks. */
 export const runGhFirst: Gh = ghCall("first");
 
-/** Why every GitHub call is paused right now, for the panel; undefined when they aren't. */
-export const githubPaused = () => pausedText(processState().github, Date.now());
+/** Why GitHub calls are paused or slowed right now, for the panel; undefined when they aren't. */
+export const githubPaused = () => {
+  const state = processState();
+  const now = Date.now();
+  return pausedText(state.github, now) ?? pausedText(state.githubGraphql, now) ?? budgetText(state.restBudget, now);
+};
 
 const PR_FIELDS = "headRefOid,author,reviewRequests,state,isDraft,baseRefName,title,url,reviewDecision,mergeStateStatus,autoMergeRequest,mergedAt,mergeCommit,statusCheckRollup";
 
