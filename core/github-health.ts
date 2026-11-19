@@ -34,3 +34,8 @@ export function pausedText(health: GithubHealth | undefined, now: number): strin
   if (!health || health.until <= now) return undefined;
   return `${health.kind === "rate-limit" ? "GitHub is rate limiting" : "GitHub can't be reached"}; checking again at ${clock(health.until)}`;
 }
+
+/** GitHub limits REST and GraphQL calls separately, so one running out mustn't stop the other. */
+export type Budget = "rest" | "graphql";
+
+export const budgetOf = (args: readonly string[]): Budget => (args[0] === "api" && args[1] === "graphql" ? "graphql" : "rest");

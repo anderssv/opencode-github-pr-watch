@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { classifyGhError, healthAfter, pausedText, type GithubHealth } from "../core/github-health";
+import { budgetOf, classifyGhError, healthAfter, pausedText, type GithubHealth } from "../core/github-health";
 
 const NOW = Date.parse("2026-11-18T12:00:00Z");
 
@@ -47,5 +47,14 @@ describe("pausedText: what the panel and a refused call say", () => {
     expect(pausedText(health, NOW)).toMatch(/^GitHub is rate limiting; checking again at \d\d:05$/);
     expect(pausedText({ ...health, kind: "network" }, NOW)).toMatch(/^GitHub can't be reached; checking again at \d\d:05$/);
     expect(pausedText({ ...health, until: NOW - 1 }, NOW)).toBeUndefined();
+  });
+});
+
+describe("budgetOf: REST and GraphQL are limited separately, so each is paused on its own", () => {
+  test("gh api graphql is GraphQL; everything else is REST", () => {
+    expect(budgetOf(["api", "graphql", "-f", "query=..."])).toBe("graphql");
+    expect(budgetOf(["api", "repos/o/r/branches/main"])).toBe("rest");
+    expect(budgetOf(["pr", "view", "1"])).toBe("rest");
+    expect(budgetOf(["run", "list"])).toBe("rest");
   });
 });

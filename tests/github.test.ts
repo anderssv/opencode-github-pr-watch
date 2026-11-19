@@ -112,6 +112,17 @@ describe("prSnapshot: a monorepo merge", () => {
     return "[]";
   };
 
+  test("with a batched PR read: no gh pr view, and the comments come from it", async () => {
+    const plain = fakeGh();
+    const calls: string[][] = [];
+    const gh: Gh = async (args, cwd) => (calls.push(args), plain(args, cwd));
+    const view = JSON.parse(await plain(["pr", "view"], "/tmp"));
+    const comments = { unresolvedThreads: 0, commentIds: [], comments: [] };
+    const snapshot = await prSnapshot(gh, "o/r", 1, "/tmp", Date.parse("2026-11-16T14:00:00Z"), undefined, false, undefined, async () => ({ view, comments }));
+    expect(calls.some((a) => a[0] === "pr" && a[1] === "view")).toBe(false);
+    expect(snapshot.facts?.deploy).toBe("NOTHING");
+  });
+
   test("skipped component pipelines are left out of the state the model judges", async () => {
     const snapshot = await prSnapshot(fakeGh(), "o/r", 1, "/tmp", Date.parse("2026-11-16T14:00:00Z"));
     expect(snapshot.facts?.deploy).toBe("NOTHING");

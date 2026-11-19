@@ -1,6 +1,7 @@
 import type { GithubHealth } from "./github-health";
 import { newOutbox, type Outbox } from "./outbox";
 import { GhQueue } from "./gh-queue";
+import type { PrBatcher } from "./pr-batch";
 
 /** GitHub calls running at once, across every watch in the process. */
 export const GH_CONCURRENCY = 6;
@@ -23,9 +24,13 @@ export interface ProcessState {
   readonly checking: Set<string>;
   /** GitHub rate limiting or out of reach: every call waits until this is over. */
   github?: GithubHealth;
+  /** The same for GraphQL calls, whose budget is separate from REST's. */
+  githubGraphql?: GithubHealth;
   /** Messages waiting to be posted, and the instance that posts them. */
   readonly outbox: Outbox;
   readonly ghQueue: GhQueue;
+  /** Batched PR reads (one GraphQL call for the PRs asked for together), per priority; made by the plugin. */
+  prReaders?: { readonly first: PrBatcher; readonly background: PrBatcher };
 }
 
 export const newProcessState = (): ProcessState => ({ resumed: new Set(), owners: new Map(), timers: new Map(), checkers: new Map(), orphans: new Map(), checking: new Set(), outbox: newOutbox(), ghQueue: new GhQueue(GH_CONCURRENCY) });

@@ -1,3 +1,4 @@
+import { PrBatcher } from "./core/pr-batch";
 import { enqueue, flushOutbox, registerDeliverer, releaseDeliverer, type Queued } from "./core/outbox";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -18,7 +19,7 @@ import { Plugin } from "@opencode/plugin";
 import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPrompt, parseBotAdvice, parseDiagnosis, refreshHistory } from "./core/advice";
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
 import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
-import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst } from "./core/github";
+import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst, type ReadPr } from "./core/github";
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory, findGitPushes, findPrCreates, prUrlsIn } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
@@ -187,7 +188,7 @@ export default Plugin.define({
         ? runSnapshot(runGh, watch.repo, watch.run, watch.pinned.directory)
         : withAttachedRuns(
             watch,
-            await prSnapshot(runGh, watch.repo, watch.pr, watch.pinned.directory, Date.now(), await roleLookup(watch.repo, watch.pinned.directory, watch.sessionID, watch.pinned), await marksNoDeploy(watch.repo), await guessLookup(watch.pinned.directory, watch.sessionID, watch.pinned)),
+            await prSnapshot(runGh, watch.repo, watch.pr, watch.pinned.directory, Date.now(), await roleLookup(watch.repo, watch.pinned.directory, watch.sessionID, watch.pinned), await marksNoDeploy(watch.repo), await guessLookup(watch.pinned.directory, watch.sessionID, watch.pinned), readPr("background")),
           );
     // Runs on the PR's branch followed in its watch. Only their state goes into the text: every finished job would
     // otherwise be a change for the model to judge. A run that can't be read is left out this time and stays attached.
@@ -435,6 +436,9 @@ export default Plugin.define({
       (id, delayMs) => schedule(id, delayMs),
     );
     const owning = () => ownsPolling(shared, directory, owner);
+    // Shared by every instance in the process, so PRs checked at the same moment share one call whichever directory they're in.
+    shared.prReaders ??= { first: new PrBatcher(runGhFirst, 200), background: new PrBatcher(runGh, 1_000) };
+    const readPr = (priority: "first" | "background"): ReadPr => (repo, pr, cwd) => processState().prReaders![priority].read(repo, pr, cwd);
     registerDeliverer(shared.outbox, owner, deliverQueued);
 
     const topicCache = new Map<string, Promise<Topic[]>>();
@@ -787,10 +791,10 @@ export default Plugin.define({
       const replaced = Boolean(existing);
       // An open PR started by hand starts from one quick read; the first full check, right after, fills in the rest.
       // A trigger (merge, rerun) needs the full read to decide whether there is anything to watch.
-      const quick = !runRef && !trigger ? await quickSnapshot(runGhFirst, repo, ref.pr, pin.pinned.directory, now) : undefined;
+      const quick = !runRef && !trigger ? await quickSnapshot(runGhFirst, repo, ref.pr, pin.pinned.directory, now, readPr("first")) : undefined;
       const snapshot = quick ?? (runRef
         ? await runSnapshot(runGhFirst, repo, runRef.run, pin.pinned.directory, now)
-        : await prSnapshot(runGhFirst, repo, ref.pr, pin.pinned.directory, now, cachedRoleLookup(repo, pin.pinned.directory, judge.model), await marksNoDeploy(repo), environmentGuess(pin.pinned.directory, judge.model)));
+        : await prSnapshot(runGhFirst, repo, ref.pr, pin.pinned.directory, now, cachedRoleLookup(repo, pin.pinned.directory, judge.model), await marksNoDeploy(repo), environmentGuess(pin.pinned.directory, judge.model), readPr("first")));
       if (!snapshot.facts) throw new Error(snapshot.text);
       const summary = summaryLine(snapshot.facts, now);
       const decision = startDecision(snapshot.facts, now, trigger ? { trigger } : {});

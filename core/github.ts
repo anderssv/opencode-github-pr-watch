@@ -1,3 +1,4 @@
+import type { PrRead } from "./pr-batch";
 import type { GhPriority } from "./gh-queue";
 import { existsSync } from "node:fs";
 import { findGh, ghFailure, mergePaths, PATH_MARKER, pathFromShell } from "./gh-binary";
@@ -8,7 +9,7 @@ import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironment
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { COMMENTS_QUERY, parseComments, type CommentRead } from "./comments";
-import { classifyGhError, healthAfter, pausedText } from "./github-health";
+import { budgetOf, classifyGhError, healthAfter, pausedText } from "./github-health";
 import { processState } from "./runtime";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
 import { runFacts } from "./run-facts";
@@ -60,20 +61,23 @@ const execGh: Gh = (args, cwd) =>
 // Every call waits its turn in the process's queue.
 const ghCall = (priority: GhPriority): Gh => async (args, cwd) => {
   const state = processState();
-  const paused = pausedText(state.github, Date.now());
+  const key = budgetOf(args) === "graphql" ? "githubGraphql" : "github";
+  const paused = pausedText(state[key], Date.now());
   if (paused) throw new Error(paused);
   try {
     const out = await state.ghQueue.run(priority, () => execGh(args, cwd));
-    if (state.github) {
-      debug("github-back", { after: state.github.kind, failures: state.github.failures });
-      state.github = undefined;
+    const health = state[key];
+    if (health) {
+      debug("github-back", { budget: budgetOf(args), after: health.kind, failures: health.failures });
+      state[key] = undefined;
     }
     return out;
   } catch (err) {
     const kind = classifyGhError(err instanceof Error ? err.message : String(err));
     if (kind) {
-      state.github = healthAfter(state.github, kind, Date.now());
-      debug("github-paused", { kind, until: new Date(state.github!.until).toISOString(), failures: state.github!.failures });
+      const health = healthAfter(state[key], kind, Date.now());
+      state[key] = health;
+      if (health) debug("github-paused", { budget: budgetOf(args), kind, until: new Date(health.until).toISOString(), failures: health.failures });
     }
     throw err;
   }
@@ -144,11 +148,14 @@ export type RoleLookup = (workflowID: number) => Promise<WorkflowRole | undefine
  * The open PR from one call, to start its watch at once; the first full check fills in the rest. Merged or closed PRs
  * need the full read (their deploy decides whether to watch), so they get none.
  */
-export async function quickSnapshot(gh: Gh, repo: string, pr: number, cwd: string, now = Date.now()): Promise<Snapshot | undefined> {
-  const view: PrView = JSON.parse(await gh(["pr", "view", String(pr), "--repo", repo, "--json", PR_FIELDS], cwd));
+export async function quickSnapshot(gh: Gh, repo: string, pr: number, cwd: string, now = Date.now(), readPr?: ReadPr): Promise<Snapshot | undefined> {
+  const view: PrView = readPr ? (await readPr(repo, pr, cwd)).view : JSON.parse(await gh(["pr", "view", String(pr), "--repo", repo, "--json", PR_FIELDS], cwd));
   if (view.state !== "OPEN") return undefined;
   return { text: `PR: ${view.title} (${view.url})\n(first read; details follow)`, facts: factsFrom(view, [], now) };
 }
+
+/** Reads a PR and who commented on it; the plugin batches these into one GraphQL call. */
+export type ReadPr = (repo: string, pr: number, cwd: string) => Promise<PrRead>;
 
 export async function prSnapshot(
   gh: Gh,
@@ -159,10 +166,18 @@ export async function prSnapshot(
   roleOf?: RoleLookup,
   noDeploy = false,
   guessEnvironments?: EnvironmentGuess,
+  readPr?: ReadPr,
 ): Promise<Snapshot> {
   let view: PrView;
+  let batchedComments: CommentRead | undefined;
   try {
-    view = JSON.parse(await gh(["pr", "view", String(pr), "--repo", repo, "--json", PR_FIELDS], cwd));
+    if (readPr) {
+      const read = await readPr(repo, pr, cwd);
+      view = read.view;
+      batchedComments = read.comments;
+    } else {
+      view = JSON.parse(await gh(["pr", "view", String(pr), "--repo", repo, "--json", PR_FIELDS], cwd));
+    }
   } catch (err) {
     debug("read-failed", { repo, pr, what: "PR", error: err });
     return { text: `Could not read the PR: ${err instanceof Error ? err.message : String(err)}` };
@@ -227,7 +242,7 @@ export async function prSnapshot(
     const plans = await finishedRunPlans(gh, repo, view.statusCheckRollup, cwd);
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
     // Only for the line's icon: never part of the text, so a new comment doesn't wake the model.
-    const read = await tolerate(debug, "comments", prComments(gh, repo, pr, cwd), undefined, { repo, pr });
+    const read = batchedComments ?? (await tolerate(debug, "comments", prComments(gh, repo, pr, cwd), undefined, { repo, pr }));
     if (read) facts = { ...facts, unresolvedThreads: read.unresolvedThreads, commentIds: read.commentIds, comments: read.comments };
     const checksApproval = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments), [], { repo, pr });
     if (checksApproval.length > 0) facts = { ...facts, expectedChecksApproval: checksApproval };
