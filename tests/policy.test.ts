@@ -283,10 +283,17 @@ describe("approval wait", () => {
 describe("reminderDue", () => {
   const waiting = aFacts({ review: "REVIEW_REQUIRED" });
 
-  test("reminds every 24 hours while waiting for review", () => {
+  test("reminds once the PR has waited a working day for review", () => {
     expect(reminderDue(waiting, NOW - 23 * 3_600_000, undefined, NOW)).toBe(false);
     expect(reminderDue(waiting, NOW - 25 * 3_600_000, undefined, NOW)).toBe(true);
-    expect(reminderDue(waiting, NOW - 30 * 3_600_000, NOW - 2 * 3_600_000, NOW)).toBe(false);
+  });
+
+  test("once a day at 09:00 (local time), for every PR that has waited a working day, so they come together", () => {
+    const at = (hour: number, day = 15) => new Date(2026, 9, day, hour, 0).getTime();
+    expect(reminderDue(waiting, at(8, 14), undefined, at(8))).toBe(false);
+    expect(reminderDue(waiting, at(8, 14), undefined, at(9))).toBe(true);
+    expect(reminderDue(waiting, at(8, 13), at(9, 14), at(9))).toBe(true);
+    expect(reminderDue(waiting, at(8, 13), at(9), at(15))).toBe(false);
   });
 
   test("reminds about an environment approval too, with its own phase", () => {

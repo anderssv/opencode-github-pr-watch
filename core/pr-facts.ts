@@ -28,6 +28,8 @@ export interface PrView {
   readonly mergedAt: string | null;
   readonly mergeCommit: { readonly oid: string } | null;
   readonly statusCheckRollup: readonly CheckView[];
+  /** Closed by the gh user itself (read from the close event); its watch ending is then nothing new to act on. */
+  readonly closedByViewer?: true;
 }
 
 export interface JobView {
@@ -108,6 +110,8 @@ export interface PrFacts {
   readonly headSha?: string;
   readonly author?: string;
   readonly authorIsBot?: true;
+  /** The gh user closed it. */
+  readonly closedByViewer?: true;
   /** The workflow run to open: the one still going, else a failed one, else the latest. */
   readonly runUrl?: string;
   /** Identifies one failure: the failed check's job link, or the failed deploy run and its attempt. */
@@ -263,6 +267,7 @@ export function factsFrom(
     ...(view.headRefOid ? { headSha: view.headRefOid } : {}),
     ...(view.author?.login ? { author: view.author.login } : {}),
     ...(view.author?.is_bot ? { authorIsBot: true as const } : {}),
+    ...(view.closedByViewer ? { closedByViewer: true as const } : {}),
     deployingOnBase: deployingOnBase(view.statusCheckRollup, baseRuns),
     baseRefName: view.baseRefName,
     review: REVIEWS[view.reviewDecision] ?? "NOT_REQUIRED",

@@ -147,6 +147,7 @@ export function judgePrompt(watch: Watch, snapshot: string): string {
     "Jobs are created as a run reaches them, and a job list can be partial or ordered differently between two states.",
     "A job missing from one state that was in an earlier one is not news: never report jobs as disappearing or no longer appearing.",
     "A run shows queued again while its next job waits for a runner, and a run's status can be a moment ahead of its jobs; neither is news.",
+    "Runs on the merge commit that aren't this PR's deploy (bots' own runs such as dynamic dependency updates, other workflows) are not news.",
     "",
     "Which workflow runs belong to this PR:",
     "- The PR's own outcome is the runs triggered by the merge: event [push], started at or after the merge time.",
@@ -311,10 +312,14 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     next = rest;
   }
   if (end) {
-    const what = found.length > 0 ? `${found.join("; ")}. ` : "";
+    // An event that says the same as the end ("deployed (merge pipeline succeeded)") isn't said twice.
+    const shown = found.filter((event) => !end.startsWith(event));
+    const what = shown.length > 0 ? `${shown.join("; ")}. ` : "";
+    // A PR the gh user closed itself has nothing new for the agent; anything else ending wakes it.
+    const wake = !(facts.state === "CLOSED" && facts.closedByViewer);
     // Inside a phase the only end is a watch where nothing has changed for 14 days.
     if ("phase" in current) {
-      await say(`${what}watch stopped: ${end}. ${summary}`, true);
+      await say(`${what}watch stopped: ${end}. ${summary}`, wake);
       return { watch: next, stop: true, delayMs: 0 };
     }
     if (facts.state === "CLOSED" && facts.authorIsBot) {
@@ -330,7 +335,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     // The model saw the job's steps: the service shipped and only a step after it failed.
     const stated = advice?.afterDeploy ? `deployed, but a step after the deploy failed: ${advice.cause}` : end;
     const suggestion = advice ? ` suggestion${advice.fromPr ? " (read from the bot's PR description, verify before acting)" : ""}: ${advice.text}.` : "";
-    await say(`${what}watch stopped: ${stated}${author}.${suggestion} ${summary}`, true);
+    await say(`${what}watch stopped: ${stated}${author}.${suggestion} ${summary}`, wake);
     return { watch: next, stop: true, delayMs: 0 };
   }
   // Every change of where the PR is gets said by rule, so the end of something announced (checks restarted) is never

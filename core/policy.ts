@@ -238,9 +238,15 @@ export function stillAwaiting(awaiting: Awaiting, facts: PrFacts, now: number): 
 export function reminderDue(facts: PrFacts, phaseSince: number, lastReminderAt: number | undefined, now: number): boolean {
   const current = phaseOf(facts, now);
   if (!("phase" in current) || (current.phase !== "review" && current.phase !== "approval")) return false;
-  // People don't review on weekends, so neither the reminder nor its waiting time runs then.
-  return !isWeekend(now) && workingMs(lastReminderAt ?? phaseSince, now) >= REMINDER_EVERY_MS;
+  // People don't review on weekends, so neither the reminder nor its waiting time runs then. Every PR that has waited
+  // a working day is reminded of once a day at the same time, so the reminders of a session come as one message.
+  if (isWeekend(now) || workingMs(phaseSince, now) < REMINDER_EVERY_MS) return false;
+  const today = new Date(now);
+  today.setHours(REMINDER_HOUR, 0, 0, 0);
+  return now >= today.getTime() && (lastReminderAt === undefined || lastReminderAt < today.getTime());
 }
+
+const REMINDER_HOUR = 9;
 
 export function pollDelay(_facts: PrFacts, now: number, awaitingNewRun = false, lastChangeAt?: number): number {
   // Watches now live until the PR is done, so one that has been quiet for a day is checked less often.

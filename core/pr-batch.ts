@@ -34,7 +34,8 @@ const CHECKS_SELECTION = `
 const TALK_SELECTION = `
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } } } }
   comments(last: 50) { nodes { ${COMMENT_FIELDS} } }
-  reviewThreads(first: 100) { nodes { isResolved path comments(last: 20) { nodes { ${COMMENT_FIELDS} } } } }`;
+  reviewThreads(first: 100) { nodes { isResolved path comments(last: 20) { nodes { ${COMMENT_FIELDS} } } } }
+  timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { actor { login } } } }`;
 
 // What doesn't change these markers (a thread resolved, a check renamed) is caught by reading again after a while.
 const CHECKS_AT_LEAST_EVERY_MS = 5 * 60_000;
@@ -46,7 +47,7 @@ interface Known {
   readonly updatedAt: string;
   readonly checks: Node[];
   readonly checksAt: number;
-  readonly talk: { reviewRequests: Node; comments: Node; reviewThreads: Node };
+  readonly talk: { reviewRequests: Node; comments: Node; reviewThreads: Node; timelineItems?: Node };
   readonly talkAt: number;
 }
 
@@ -86,7 +87,7 @@ const REPO = /^([\w.-]+)\/([\w.-]+)$/;
 
 // Only the state and the counts, so the marker is the same whether or not the check list is in the answer.
 /** Raised when the batcher changes, so a running process replaces the one it kept across a reload. */
-export const PR_BATCHER_VERSION = 2;
+export const PR_BATCHER_VERSION = 3;
 
 const countsOf = (node: Node) => {
   const rollup = node.commits?.nodes?.[0]?.commit?.statusCheckRollup;
@@ -156,7 +157,7 @@ export class PrBatcher {
       // A detail read that failed falls back to the last one; its markers stay old, so it's asked again next round.
       const checks: Node[] = extra && need?.checks ? (extra.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []) : (kept?.checks ?? []);
       const talk = extra && need?.talk
-        ? { reviewRequests: extra.reviewRequests, comments: extra.comments, reviewThreads: extra.reviewThreads }
+        ? { reviewRequests: extra.reviewRequests, comments: extra.comments, reviewThreads: extra.reviewThreads, timelineItems: extra.timelineItems }
         : (kept?.talk ?? { reviewRequests: { nodes: [] }, comments: { nodes: [] }, reviewThreads: { nodes: [] } });
       this.known.set(key, {
         head: extra && need?.checks ? node.headRefOid : (kept?.head ?? ""),
@@ -168,8 +169,10 @@ export class PrBatcher {
         talkAt: extra && need?.talk ? now : (kept?.talkAt ?? 0),
       });
       const full = { ...node, commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: checks } } } }] }, ...talk };
+      const viewer = cheap.viewer ?? details.viewer;
+      const closer = node.state === "CLOSED" ? (talk.timelineItems as Node | undefined)?.nodes?.[0]?.actor?.login : undefined;
       const read: PrRead = {
-        view: toPrView(full),
+        view: { ...toPrView(full), ...(closer && closer === viewer?.login ? { closedByViewer: true as const } : {}) },
         comments: parseComments({ data: { viewer: cheap.viewer ?? details.viewer, repository: { pullRequest: full } } }),
       };
       for (const w of r.waiters) w.resolve(read);

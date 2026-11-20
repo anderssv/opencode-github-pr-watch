@@ -200,3 +200,11 @@ describe("PrBatcher: the check list and the comments only when they may have cha
     expect(queries[3]).toContain("contexts(first: 100)");
   });
 });
+
+describe("PrBatcher: who closed the PR", () => {
+  test("the gh user (the viewer) or someone else", async () => {
+    const closed = (login: string) => fakeGraphql(() => ({ pullRequest: prNode("t", { state: "CLOSED", timelineItems: { nodes: [{ actor: { login } }] } }) }));
+    expect((await new PrBatcher(closed("me").gh, 5).read("o/r", 1, "/w")).view.closedByViewer).toBe(true);
+    expect((await new PrBatcher(closed("anna").gh, 5).read("o/r", 1, "/w")).view.closedByViewer).toBeUndefined();
+  });
+});

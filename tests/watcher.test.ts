@@ -836,3 +836,24 @@ describe("progress is a stage changing state, or a running stage moving on", () 
     expect(ports.notifications.map((n) => n.text).join()).toContain("progress: Checks … 4/5");
   });
 });
+
+describe("how a watch ends", () => {
+  test("deployed: said once, not again as the reason", async () => {
+    const deploying = aFacts({ state: "MERGED", mergedAt: NOW - 600_000, deploy: "RUNNING" });
+    const ports = fakePorts({ snapshots: [aSnapshot("deployed", { state: "MERGED", mergedAt: NOW - 600_000, deploy: "SUCCEEDED" })] });
+    await tick(watchStarted({ lastSnapshot: "deploying", lastFacts: deploying }), ports, settings());
+    const text = ports.notifications[0]!.text;
+    expect(text.match(/deployed \(/g)?.length).toBe(1);
+    expect(text).toContain("watch stopped");
+  });
+
+  test("closed by the gh user: informs, doesn't wake; closed by someone else wakes", async () => {
+    const open = aFacts({ review: "REVIEW_REQUIRED" });
+    const mine = fakePorts({ snapshots: [aSnapshot("closed", { state: "CLOSED", closedByViewer: true })] });
+    await tick(watchStarted({ lastSnapshot: "open", lastFacts: open }), mine, settings());
+    expect(mine.notifications[0]!.wake).toBe(false);
+    const theirs = fakePorts({ snapshots: [aSnapshot("closed", { state: "CLOSED" })] });
+    await tick(watchStarted({ lastSnapshot: "open", lastFacts: open }), theirs, settings());
+    expect(theirs.notifications[0]!.wake).toBe(true);
+  });
+});
