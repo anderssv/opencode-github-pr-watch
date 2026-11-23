@@ -8,7 +8,7 @@ import { resolveJudgeModel, type CatalogModel, type ModelRef, type PinnedProvide
 import { nextStep, summaryLine, type PrFacts } from "./pr-facts";
 import { whoActs } from "./actor";
 import { progressTrack, trackKey, trackText, TRACK_VERSION } from "./progress";
-import { overdue, problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, type Trigger } from "./policy";
+import { overdue, problemOf, approvalText, approvalWait, endReason, events, phaseOf, pollDelay, reminderDue, stillAwaiting, stuckJobs, workingMs, type Trigger } from "./policy";
 import { parseVerdict, VERDICT_ANSWER } from "./verdict";
 
 const JUDGE_FAILURE_REPORT_MS = 30 * 60_000;
@@ -385,7 +385,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
     next = { ...next, lastTrack: track, lastTrackAt: now, lastTrackVersion: TRACK_VERSION };
   }
   if (reminderDue(facts, phaseSince, watch.lastReminderAt, now)) {
-    const hours = Math.round((now - phaseSince) / 3_600_000);
+    const hours = Math.round(workingMs(phaseSince, now) / 3_600_000);
     await say(phase === "approval" && wait ? `still waiting for run approval (${hours} h): ${wait.names.join(", ")}. ${summary}` : `still waiting for code review${facts.reviewers?.length ? ` from ${facts.reviewers.join(", ")}` : ""} (${hours} h). ${summary}`);
     next = { ...next, lastReminderAt: now };
   }

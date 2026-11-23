@@ -857,3 +857,15 @@ describe("how a watch ends", () => {
     expect(theirs.notifications[0]!.wake).toBe(true);
   });
 });
+
+describe("the reminder's hours are working hours", () => {
+  test("a wait from Thursday 11:00 is 46 h on Monday at 09:00, not 94", async () => {
+    const thursday = new Date(2026, 9, 15, 11, 0).getTime();
+    const monday = new Date(2026, 9, 19, 9, 0).getTime();
+    const waiting = { review: "REVIEW_REQUIRED" as const };
+    const ports = fakePorts({ snapshots: [aSnapshot("waiting", waiting)] });
+    ports.time = monday;
+    await tick(watchStarted({ phase: "review", phaseSince: thursday, lastReminderAt: thursday, lastSnapshot: "waiting", lastFacts: aFacts(waiting) }), ports, settings());
+    expect(ports.notifications[0]!.text).toContain("still waiting for code review (46 h)");
+  });
+});
