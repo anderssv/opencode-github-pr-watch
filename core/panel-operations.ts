@@ -116,7 +116,7 @@ export function panelOperations(port: PanelPort, apply: (change: Change) => void
         "Could not start a session",
       ),
 
-    copy: (name: string, prs: readonly MyPr[]) =>
+    copy: (name: string, prs: readonly Pick<MyPr, "title" | "url">[]) =>
       act(async () => {
         await port.copy(prList(prs));
         say(`Copied ${prs.length} PR${prs.length === 1 ? "" : "s"} from ${name}.`);

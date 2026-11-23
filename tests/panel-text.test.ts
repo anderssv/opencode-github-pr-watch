@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { lineDetail, pillView, prOfRow } from "../core/panel-text";
+import { copyItems, lineDetail, pillView, prOfRow } from "../core/panel-text";
+import { prList } from "../core/my-prs";
 import type { MyPr } from "../core/my-prs";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -31,5 +32,15 @@ describe("pillView: the pill above the composer", () => {
     expect(pillView([{ tone: "pending" }])).toEqual({ label: "1 PR watched", worst: "pending" });
     expect(pillView([{ tone: "pending" }, { tone: "waiting" }])).toEqual({ label: "2 PRs watched", worst: "waiting" });
     expect(pillView([{ tone: "waiting" }, { tone: "failed" }, { tone: "done" }])).toEqual({ label: "3 PRs watched", worst: "failed" });
+  });
+});
+
+describe("copyItems: the pill's lines as a list to copy", () => {
+  test("PRs by title, runs by their name, each with its link", () => {
+    const rows = [
+      { id: "o/r#7", label: "o/r#7 Fix the build", url: "https://github.com/o/r/pull/7" },
+      { id: "o/r run 99", label: "MAIN - Deployment pipeline", url: "https://github.com/o/r/actions/runs/99" },
+    ];
+    expect(prList(copyItems(rows))).toBe("- Fix the build: https://github.com/o/r/pull/7\n- MAIN - Deployment pipeline: https://github.com/o/r/actions/runs/99");
   });
 });

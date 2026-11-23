@@ -72,7 +72,7 @@ export function matchesSearch(pr: MyPr, search: string): boolean {
 }
 
 /** A group's PRs for pasting: "- <title>: <url>", one per line. */
-export const prList = (prs: readonly MyPr[]) => prs.map((pr) => `- ${pr.title}: ${pr.url}`).join("\n");
+export const prList = (prs: readonly Pick<MyPr, "title" | "url">[]) => prs.map((pr) => `- ${pr.title}: ${pr.url}`).join("\n");
 
 const PR_WATCH = /^(.+\/.+)#(\d+)$/;
 

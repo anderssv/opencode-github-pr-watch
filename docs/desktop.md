@@ -8,6 +8,8 @@ These need the OpenCode desktop app. Watching itself works in any OpenCode clien
 
 ![The pill, opened](images/pill.png)
 
+The menu starts with how many the session watches and a copy button that puts all of them on the clipboard as a list of `- <title>: <url>` lines (a run without a PR by its name), like a group's copy button in the PRs tab.
+
 In OpenCode Desktop, a pill above the session's composer shows how many PRs the session watches ("3 PRs watched"), coloured by the one needing attention most: red when something failed, yellow when a person has to act. Clicking it lists each PR with where it is now ("checks running", "waiting for review", "deploying"…), with buttons that open the PR and its workflow run in the browser. The run is the one still going, else a failed one, else the latest: the PR's checks before merge, the deploy pipeline after. It updates as the watches change.
 
 - The server part exposes the watches over RPC (`rpc.ts`: `pr-watch.list` and a `changed` event); the desktop part (`src/gui.tsx`, the experimental GUI plugin API) reads them.

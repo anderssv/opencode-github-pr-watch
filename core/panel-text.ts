@@ -28,3 +28,7 @@ export function pillView(rows: readonly { readonly tone: Tone }[]): { label: str
   const worst = rows.some((r) => r.tone === "failed") ? "failed" : rows.some((r) => r.tone === "waiting") ? "waiting" : "pending";
   return { label: `${rows.length} PR${rows.length === 1 ? "" : "s"} watched`, worst };
 }
+
+/** The pill's lines for copying as a list: a PR by its title, a run (no PR) by its label, each with its link. */
+export const copyItems = (rows: readonly { readonly id: string; readonly label: string; readonly url: string }[]): Pick<MyPr, "title" | "url">[] =>
+  rows.map((row) => ({ title: prOfRow(row)?.title ?? row.label, url: row.url }));

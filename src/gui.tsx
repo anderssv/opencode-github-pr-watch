@@ -7,7 +7,7 @@ import type { Topic } from "../core/topics";
 import { activities as trackActivities, errorText, panelOperations, type LoadedPrs, type PanelPort, type PanelSession } from "../core/panel-operations";
 import { DEMO_KEY, demoPort } from "../core/demo";
 import { emptyStore, sessionRows, update, type Change, type Store } from "../core/store";
-import { lineDetail, pillView, prOfRow } from "../core/panel-text";
+import { copyItems, lineDetail, pillView, prOfRow } from "../core/panel-text";
 import { ALL_STATUSES, choiceWrites, prsView, readSessionChoices, STATUS_LABELS, statusSummary, toggleStatus, type Grouping, type PrsChoices } from "../core/prs-view";
 import { PrWatch } from "../rpc";
 import { STAGE_MARKS as STAGE_MARK, type Stage, type StageState } from "../core/progress";
@@ -665,6 +665,15 @@ export default Plugin.define({
       // One line per PR: where it is, with buttons that open the PR and the run it's waiting on in the browser.
       menu: (input) => (
         <div style={{ display: "flex", "flex-direction": "column", gap: "6px", padding: "4px 0", width: "100%", "box-sizing": "border-box", "max-height": "min(480px, 60vh)", "overflow-y": "auto", "padding-right": "4px" }}>
+          <div style={{ display: "flex", "align-items": "center", gap: "6px" }}>
+            <span style={{ flex: "1", opacity: "0.6", "font-size": "12px" }}>{sessionRows(store().rows, input.session.id).length} watched in this session</span>
+            <TipButton
+              icon="copy"
+              label="Copy all as a list"
+              size="small"
+              onClick={() => void ops.copy("this session", copyItems(sessionRows(store().rows, input.session.id)))}
+            />
+          </div>
           <Index each={sessionRows(store().rows, input.session.id)}>{(row) => <WatchLine row={row()} session={input.session} />}</Index>
         </div>
       ),
