@@ -100,6 +100,13 @@ export class FakePorts implements WatchPorts {
     return this.autoMergeActor;
   }
   stall?: string;
+  /** What the light model makes of new comments; undefined = no model answer. */
+  analysed?: string[];
+  readonly analysedFor: string[][] = [];
+  async analyseComments(_model: ModelRef, _watch: Watch, comments: readonly { readonly id: string }[]): Promise<string[] | undefined> {
+    this.analysedFor.push(comments.map((c) => c.id));
+    return this.analysed;
+  }
   async phaseLimit(): Promise<PhaseLimit | undefined> {
     return this.limit;
   }

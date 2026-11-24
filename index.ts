@@ -1,3 +1,4 @@
+import { analysedLines, commentPrompt, parseCommentAnalysis } from "./core/comment-analysis";
 import { PR_BATCHER_VERSION, PrBatcher } from "./core/pr-batch";
 import { enqueue, flushOutbox, registerDeliverer, releaseDeliverer, type Queued } from "./core/outbox";
 import { join } from "node:path";
@@ -231,6 +232,24 @@ export default Plugin.define({
           workflows.map(async (w) => limitFromDurations(await workflowDurations(runGh, watch.repo, w, event, watch.pinned.directory), fallback)),
         );
         return limits.reduce((a, b) => (b.limitMs > a.limitMs ? b : a));
+      },
+      analyseComments: async (model, watch, comments) => {
+        // The text is read here and only goes to the model; the session gets the model's plain-language lines.
+        const query = `query($ids: [ID!]!) { nodes(ids: $ids) { id ... on PullRequestReviewComment { body line originalLine } ... on IssueComment { body } } }`;
+        const answer = JSON.parse(
+          await runGh(["api", "graphql", "-f", `query=${query}`, ...comments.flatMap((c) => ["-f", `ids[]=${c.id}`])], watch.pinned.directory),
+        ) as { data: { nodes: ({ id: string; body?: string; line?: number | null; originalLine?: number | null } | null)[] } };
+        const byId = new Map(answer.data.nodes.filter((n) => n !== null).map((n) => [n!.id, n!] as const));
+        const toRead = comments.flatMap((c) => {
+          const node = byId.get(c.id);
+          if (!node?.body) return [];
+          const line = node.line ?? node.originalLine ?? undefined;
+          return [{ author: c.author, ...(c.path ? { path: c.path } : {}), ...(line ? { line } : {}), url: c.url, body: node.body.slice(0, 4_000) }];
+        });
+        if (toRead.length === 0) return undefined;
+        const reply = await ctx.generate.text({ prompt: commentPrompt(toRead), model: { providerID: model.providerID, id: model.id } });
+        const analysis = parseCommentAnalysis(reply.text, toRead.length, badAnswer("comments", model, reply.text, { id: watch.id }));
+        return analysis ? analysedLines(toRead, analysis) : undefined;
       },
       evaluateStall: async (model, watch, _facts, basis) => {
         const { runs } = await pipelinesOf(watch);

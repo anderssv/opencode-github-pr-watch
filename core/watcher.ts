@@ -1,3 +1,4 @@
+import type { PrComment } from "./comments";
 import { answerShape } from "./answer";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { stepChangeText, stepDetail } from "./watch-rows";
@@ -107,6 +108,11 @@ export interface WatchPorts {
   phaseLimit?(watch: Watch, facts: PrFacts, phase: string): Promise<PhaseLimit | undefined>;
   /** Asks the (guarded) model whether a run past its limit looks stuck or just slow. */
   evaluateStall?(model: ModelRef, watch: Watch, facts: PrFacts, basis: string): Promise<string | undefined>;
+  /**
+   * New comments, read by the light model: one plain-language line each ("new review comment by bob on a.ts:42,
+   * change requested: wants a test for the null case (link)"). Their text stays in the port, never in a message.
+   */
+  analyseComments?(model: ModelRef, watch: Watch, comments: readonly PrComment[]): Promise<string[] | undefined>;
   /** A fresh read right before sending: whether this watch is still the current one for its PR, and the live facts. */
   current(watch: Watch): Promise<{ owned: boolean; facts?: PrFacts }>;
   now(): number;
@@ -121,6 +127,8 @@ export interface TickResult {
 }
 
 const ACTIVE_POLL_MS = 60_000;
+// A review arriving as many comments at once is read in one go, up to this many.
+const MAX_ANALYSED = 10;
 const TRACK_EVERY_MS = 60_000;
 const RESUME_HINT = "call watch_pr again to resume";
 
@@ -374,8 +382,23 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
   // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
   const actor = whoActs(facts, now);
+  // New comments: the light model says what each asks, in plain words, and the agent asks the user what to do with
+  // them. Without a model answer they're said as who and where, as before.
+  const isCommentEvent = (event: string) => /^new (review )?comment /.test(event) || / left \d+ review comments? \(/.test(event) || event.endsWith("more new comments");
+  const known = new Set(watch.lastFacts?.commentIds ?? []);
+  const fresh = watch.lastFacts?.commentIds ? (facts.comments ?? []).filter((c) => !known.has(c.id)).slice(0, MAX_ANALYSED) : [];
+  let analysed = false;
+  if (fresh.length > 0 && found.some(isCommentEvent)) {
+    const model = await guardedModel(watch, ports, settings, session);
+    const lines = model ? await logged(ports, watch, "comments", ports.analyseComments?.(model, watch, fresh)) : undefined;
+    if (lines && lines.length > 0) {
+      const at = found.findIndex(isCommentEvent);
+      found = [...found.slice(0, at).filter((e) => !isCommentEvent(e)), ...lines, "ask the user whether to fix, answer or leave each; before working on one, read it (and its file and line) with its gh api path", ...found.slice(at).filter((e) => !isCommentEvent(e))];
+      analysed = true;
+    }
+  }
   // Review comments on the code (a person's or Copilot's) are for the agent to address or answer.
-  const reviewed = found.some((event) => event.startsWith("new review comment") || / left \d+ review comments? \(/.test(event));
+  const reviewed = analysed || found.some((event) => event.startsWith("new review comment") || / left \d+ review comments? \(/.test(event));
   if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent" || reviewed);
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.

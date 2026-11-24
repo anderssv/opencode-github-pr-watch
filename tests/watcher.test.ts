@@ -886,3 +886,26 @@ describe("new review comments wake the agent; conversation comments only inform"
     expect(ports.notifications[0]!.wake).toBe(false);
   });
 });
+
+describe("new comments are read by the light model and the user asked what to do", () => {
+  const before = aFacts({ review: "REVIEW_REQUIRED", commentIds: ["c0"], comments: [] });
+  const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["c0", "t1"], comments: [{ id: "t1", author: "bob", path: "a.ts", url: "u1" }] };
+
+  test("the model's plain-language line replaces who-and-where, the agent is woken and told to ask", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
+    ports.analysed = ["new review comment by bob on a.ts:3, change requested: wants a null check (u1)"];
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: before }), ports, settings());
+    expect(ports.analysedFor).toEqual([["t1"]]);
+    const text = ports.notifications[0]!.text;
+    expect(text).toContain("change requested: wants a null check (u1)");
+    expect(text).not.toContain("new review comment by bob on a.ts (u1)");
+    expect(text).toContain("ask the user");
+    expect(ports.notifications[0]!.wake).toBe(true);
+  });
+
+  test("without a model answer: who and where, as before", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: before }), ports, settings());
+    expect(ports.notifications[0]!.text).toContain("new review comment by bob on a.ts (u1)");
+  });
+});
