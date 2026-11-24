@@ -310,7 +310,7 @@ export async function prSnapshot(
     if (plans.length > 0) facts = { ...facts, terraformPlans: plans };
     // Only for the line's icon: never part of the text, so a new comment doesn't wake the model.
     const read = batchedComments ?? (await tolerate(debug, "comments", prComments(gh, repo, pr, cwd), undefined, { repo, pr }));
-    if (read) facts = { ...facts, unresolvedThreads: read.unresolvedThreads, commentIds: read.commentIds, comments: read.comments };
+    if (read) facts = { ...facts, unresolvedThreads: read.unresolvedThreads, ...(read.unresolvedUrl ? { unresolvedUrl: read.unresolvedUrl } : {}), commentIds: read.commentIds, comments: read.comments };
     const changedOpen = await tolerate(debug, "changed files", prChangedFiles(gh, repo, pr, cwd), undefined, { repo, pr });
     const approvalRead = await tolerate(debug, "expected checks approval", cachedChecksApproval(gh, repo, view.baseRefName, cwd, now, guessEnvironments, changedOpen), undefined, { repo, pr });
     const checksApproval = approvalRead ?? (same ? previous.expectedChecksApproval : undefined) ?? [];

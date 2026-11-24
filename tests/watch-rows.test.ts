@@ -188,3 +188,12 @@ describe("watchRows: unresolved review comments are marked on the line", () => {
     expect(watchRows([none], "s1", Date.now())[0]!.unresolvedComments).toBeUndefined();
   });
 });
+
+describe("watchRows: the comment badge links to the first unresolved thread", () => {
+  test("its link, else the PR's changes", () => {
+    const linked = aWatch({ id: "o/r#7", sessionID: "s1", pr: 7, repo: "o/r", lastFacts: aFacts({ unresolvedThreads: 1, unresolvedUrl: "u-t2" }) });
+    expect(watchRows([linked], "s1", Date.now())[0]!.commentsUrl).toBe("u-t2");
+    const plain = aWatch({ id: "o/r#7", sessionID: "s1", pr: 7, repo: "o/r", lastFacts: aFacts({ unresolvedThreads: 1 }) });
+    expect(watchRows([plain], "s1", Date.now())[0]!.commentsUrl).toBe("https://github.com/o/r/pull/7/files");
+  });
+});

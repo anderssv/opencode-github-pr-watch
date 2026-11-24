@@ -129,6 +129,7 @@ export interface PrFacts {
   /** Before the merge: the deploy's jobs from its last successful run on the base branch, and the environments that need approval. */
   /** Review threads on the open PR that nobody has resolved; absent when they couldn't be read. */
   readonly unresolvedThreads?: number;
+  readonly unresolvedUrl?: string;
   /** Every comment on the open PR at the last read, by anyone; absent until read once. */
   readonly commentIds?: readonly string[];
   /** The collaborators' comments (who and where, never the text), to report the new ones. */

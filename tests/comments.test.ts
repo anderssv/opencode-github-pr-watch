@@ -70,3 +70,14 @@ describe("bots' review comments (Copilot's reviewer) count; their conversation c
     expect(commentEvents([], bots)).toEqual(["copilot-pull-request-reviewer left 3 review comments (u-t1)"]);
   });
 });
+
+describe("the link to the first unresolved thread", () => {
+  test("its first comment's link; none when all are resolved", () => {
+    const read = parseComments(answer([], [
+      { isResolved: true, path: "a.ts", comments: { nodes: [node("t1", "anna")] } },
+      { isResolved: false, path: "b.ts", comments: { nodes: [node("t2", "bob"), node("t3", "anna")] } },
+    ]));
+    expect(read.unresolvedUrl).toBe("https://github.com/o/r/pull/7#c-t2");
+    expect(parseComments(answer([], [])).unresolvedUrl).toBeUndefined();
+  });
+});

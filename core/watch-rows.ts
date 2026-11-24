@@ -11,6 +11,7 @@ export interface WatchRow {
   readonly updating?: true;
   /** Review threads nobody has resolved, shown as a badge on the line. */
   readonly unresolvedComments?: number;
+  readonly commentsUrl?: string;
   readonly id: string;
   readonly label: string;
   readonly url: string;
@@ -123,7 +124,7 @@ export function watchRows(watches: readonly Watch[], sessionID: string, now: num
         id: watch.id,
         // Its state is being fetched from GitHub right now (waiting in the queue or being read).
         ...(processState().checking.has(watch.id) ? { updating: true as const } : {}),
-        ...(unresolved > 0 ? { unresolvedComments: unresolved } : {}),
+        ...(unresolved > 0 ? { unresolvedComments: unresolved, commentsUrl: watch.lastFacts?.unresolvedUrl ?? `https://github.com/${watch.repo}/pull/${watch.pr}/files` } : {}),
         ...(watch.lastFacts?.author ? { author: watch.lastFacts.author } : {}),
         ...(watch.lastFacts && ["OPEN", "MERGED", "CLOSED"].includes(watch.lastFacts.state) ? { state: watch.lastFacts.state as "OPEN" | "MERGED" | "CLOSED" } : {}),
         ...(watch.lastFacts?.draft ? { draft: true } : {}),

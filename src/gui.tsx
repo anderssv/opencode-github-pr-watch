@@ -24,6 +24,7 @@ interface Row {
   readonly attention?: true;
   readonly updating?: true;
   readonly unresolvedComments?: number;
+  readonly commentsUrl?: string;
   readonly runUrl?: string;
   readonly waitingFor?: "code-review" | "run-approval";
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
@@ -230,8 +231,12 @@ export default Plugin.define({
                   <Show when={line.row?.unresolvedComments}>
                     {(count) => (
                       <span
-                        title={`${count()} review comment thread${count() === 1 ? "" : "s"} nobody has resolved yet`}
-                        style={{ display: "inline-flex", "align-items": "center", gap: "3px", "font-size": "12px", color: "var(--text-warning, #d29922)" }}
+                        role="link"
+                        tabindex="0"
+                        title={`${count()} review comment thread${count() === 1 ? "" : "s"} nobody has resolved yet; open on GitHub`}
+                        onClick={() => line.row?.commentsUrl && ctx.system.openExternal(line.row.commentsUrl)}
+                        onKeyDown={(event) => event.key === "Enter" && line.row?.commentsUrl && ctx.system.openExternal(line.row.commentsUrl)}
+                        style={{ display: "inline-flex", "align-items": "center", gap: "3px", "font-size": "12px", color: "var(--text-warning, #d29922)", cursor: "pointer" }}
                       >
                         <ctx.ui.Icon name="speech-bubble" size="small" />
                         {count()}

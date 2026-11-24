@@ -14,6 +14,8 @@ export interface PrComment {
 
 export interface CommentRead {
   readonly unresolvedThreads: number;
+  /** The first unresolved thread's first comment, to open from the line. */
+  readonly unresolvedUrl?: string;
   /** Every comment there now, by anyone; the next read reports those not among them. */
   readonly commentIds: readonly string[];
   /** The collaborators' comments, which may be reported. */
@@ -58,6 +60,7 @@ export function parseComments(json: unknown): CommentRead {
     node.author !== null && node.author.login !== data.viewer.login && (isBot(node) ? path !== undefined : COLLABORATORS.has(node.authorAssociation));
   return {
     unresolvedThreads: pr.reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
+    ...((url) => (url ? { unresolvedUrl: url } : {}))(pr.reviewThreads.nodes.find((thread) => !thread.isResolved)?.comments.nodes[0]?.url),
     commentIds: all.map(({ node }) => node.id),
     comments: all
       .filter(({ node, path }) => counts(node, path))

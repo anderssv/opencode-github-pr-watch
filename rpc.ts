@@ -18,6 +18,7 @@ const row = {
     attention: { type: "boolean", enum: [true] },
     updating: { type: "boolean", enum: [true] },
     unresolvedComments: { type: "number" },
+    commentsUrl: { type: "string" },
     forPr: { type: "string" },
     track: {
       type: "array",
