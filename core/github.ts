@@ -12,7 +12,7 @@ import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironment
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { COMMENTS_QUERY, parseComments, type CommentRead } from "./comments";
-import { budgetOf, classifyGhError, healthAfter, pausedText } from "./github-health";
+import { afterSuccess, budgetOf, classifyGhError, healthAfter, pausedText } from "./github-health";
 import { processState, sharedMap } from "./runtime";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
 import { runFacts } from "./run-facts";
@@ -117,10 +117,13 @@ const ghCall = (priority: GhPriority): Gh => async (args, cwd) => {
   }
   try {
     const out = await state.ghQueue.run(priority, () => execConditional(args, cwd));
-    const health = state[key];
-    if (health) {
-      debug("github-back", { budget: budgetOf(args), after: health.kind, failures: health.failures });
-      state[key] = undefined;
+    for (const which of ["github", "githubGraphql"] as const) {
+      const health = state[which];
+      if (!health) continue;
+      const next = afterSuccess(health, which === key);
+      if (next) continue;
+      debug("github-back", { budget: which === "github" ? "rest" : "graphql", after: health.kind, failures: health.failures });
+      state[which] = undefined;
     }
     return out;
   } catch (err) {

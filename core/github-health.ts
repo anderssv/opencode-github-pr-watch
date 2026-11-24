@@ -39,3 +39,10 @@ export function pausedText(health: GithubHealth | undefined, now: number): strin
 export type Budget = "rest" | "graphql";
 
 export const budgetOf = (args: readonly string[]): Budget => (args[0] === "api" && args[1] === "graphql" ? "graphql" : "rest");
+
+/**
+ * A pause after a call got through: its own budget's pause is over, and so is the other budget's network pause (it's
+ * the same network); a rate limit on the other budget stands.
+ */
+export const afterSuccess = (health: GithubHealth | undefined, sameBudget: boolean): GithubHealth | undefined =>
+  sameBudget || health?.kind === "network" ? undefined : health;

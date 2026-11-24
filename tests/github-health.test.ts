@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { budgetOf, classifyGhError, healthAfter, pausedText, type GithubHealth } from "../core/github-health";
+import { afterSuccess, budgetOf, classifyGhError, healthAfter, pausedText, type GithubHealth } from "../core/github-health";
 
 const NOW = Date.parse("2026-11-18T12:00:00Z");
 
@@ -56,5 +56,17 @@ describe("budgetOf: REST and GraphQL are limited separately, so each is paused o
     expect(budgetOf(["api", "repos/o/r/branches/main"])).toBe("rest");
     expect(budgetOf(["pr", "view", "1"])).toBe("rest");
     expect(budgetOf(["run", "list"])).toBe("rest");
+  });
+});
+
+describe("afterSuccess: a call getting through ends the pauses it disproves", () => {
+  const network = { kind: "network" as const, until: 1, failures: 2 };
+  const limited = { kind: "rate-limit" as const, until: 1, failures: 1 };
+  test("its own budget's pause ends, whatever kind", () => {
+    expect(afterSuccess(limited, true)).toBeUndefined();
+  });
+  test("the other budget's network pause ends too (same network); its rate limit doesn't", () => {
+    expect(afterSuccess(network, false)).toBeUndefined();
+    expect(afterSuccess(limited, false)).toEqual(limited);
   });
 });
