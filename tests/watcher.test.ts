@@ -917,3 +917,17 @@ describe("new comments are read by the light model and the user asked what to do
     expect(ports.notifications[0]!.text).toContain("new review comment by bob on a.ts (u1)");
   });
 });
+
+describe("unresolved threads already there are said once", () => {
+  const open = { id: "t1", author: "copilot-pull-request-reviewer", path: "a.ts", url: "u1", bot: true as const, openThread: true as const };
+  const facts = { review: "REVIEW_REQUIRED" as const, unresolvedThreads: 1, commentIds: ["t1"], comments: [open] };
+
+  test("by a watch that hasn't said them yet, waking the agent; then not again", async () => {
+    const ports = fakePorts({ snapshots: [aSnapshot("same", facts), aSnapshot("same", facts)], verdicts: ['{"verdict":"wait"}'] });
+    const first = await tick(watchStarted({ lastSnapshot: "same", lastFacts: aFacts(facts) }), ports, settings());
+    expect(ports.notifications[0]!.text).toContain("copilot-pull-request-reviewer has 1 unresolved review comment (u1)");
+    expect(ports.notifications[0]!.wake).toBe(true);
+    await tick(first.watch, ports, settings());
+    expect(ports.notifications.length).toBe(1);
+  });
+});

@@ -81,3 +81,13 @@ describe("the link to the first unresolved thread", () => {
     expect(parseComments(answer([], [])).unresolvedUrl).toBeUndefined();
   });
 });
+
+describe("the first comment of each unresolved thread is marked, to report existing threads once", () => {
+  test("only unresolved threads' first comments, from counted authors", () => {
+    const read = parseComments(answer([node("c1", "anna")], [
+      { isResolved: false, path: "a.ts", comments: { nodes: [node("t1", "bob"), node("t2", "anna")] } },
+      { isResolved: true, path: "b.ts", comments: { nodes: [node("t3", "bob")] } },
+    ]));
+    expect(read.comments.filter((c) => c.openThread).map((c) => c.id)).toEqual(["t1"]);
+  });
+});

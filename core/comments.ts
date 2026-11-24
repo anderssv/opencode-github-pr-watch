@@ -10,6 +10,8 @@ export interface PrComment {
   readonly url: string;
   /** From a bot: only its review comments (Copilot's reviewer) are kept, not its conversation comments. */
   readonly bot?: true;
+  /** The first comment of a thread nobody has resolved: said once by a watch that hasn't said its threads yet. */
+  readonly openThread?: true;
 }
 
 export interface CommentRead {
@@ -51,7 +53,7 @@ export function parseComments(json: unknown): CommentRead {
   const pr = data.repository.pullRequest;
   const all = [
     ...pr.comments.nodes.map((node) => ({ node, path: undefined as string | undefined })),
-    ...pr.reviewThreads.nodes.flatMap((thread) => thread.comments.nodes.map((node) => ({ node, path: thread.path }))),
+    ...pr.reviewThreads.nodes.flatMap((thread) => thread.comments.nodes.map((node, i) => ({ node, path: thread.path, open: !thread.isResolved && i === 0 }))),
   ];
   // A bot's review comments on the code (Copilot's reviewer) are review feedback; its conversation comments (coverage,
   // dependency bots) are noise.
@@ -64,7 +66,10 @@ export function parseComments(json: unknown): CommentRead {
     commentIds: all.map(({ node }) => node.id),
     comments: all
       .filter(({ node, path }) => counts(node, path))
-      .map(({ node, path }) => ({ id: node.id, author: node.author!.login, ...(path ? { path } : {}), url: node.url, ...(isBot(node) ? { bot: true as const } : {}) })),
+      .map((c) => ({
+        id: c.node.id, author: c.node.author!.login, ...(c.path ? { path: c.path } : {}), url: c.node.url,
+        ...(isBot(c.node) ? { bot: true as const } : {}), ...("open" in c && c.open ? { openThread: true as const } : {}),
+      })),
   };
 }
 

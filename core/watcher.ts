@@ -1,3 +1,4 @@
+import { commentEvents } from "./comments";
 import type { PrComment } from "./comments";
 import { answerShape } from "./answer";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
@@ -44,6 +45,8 @@ export interface Watch {
   readonly readyBeforeWait?: true;
   /** Started from the quick read: the first full check becomes the baseline instead of being compared with it. */
   readonly provisional?: boolean;
+  /** The PR's unresolved threads have been said once (at the start, or when that rule came in). */
+  readonly threadsReported?: true;
   /** How the state was read when this watch's baseline was taken; see SNAPSHOT_VERSION. */
   readonly snapshotVersion?: number;
   readonly stuckReported?: boolean;
@@ -386,21 +389,28 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   const actor = whoActs(facts, now);
   // New comments: the light model says what each asks, in plain words, and the agent asks the user what to do with
   // them. Without a model answer they're said as who and where, as before.
-  const isCommentEvent = (event: string) => /^new (review )?comment /.test(event) || / left \d+ review comments? \(/.test(event) || event.endsWith("more new comments");
+  const isCommentEvent = (event: string) => /^(new|unresolved) (review )?comment /.test(event) || / (left \d+|has \d+ unresolved) review comments? \(/.test(event) || event.endsWith("more new comments");
   const known = new Set(watch.lastFacts?.commentIds ?? []);
-  const fresh = watch.lastFacts?.commentIds ? (facts.comments ?? []).filter((c) => !known.has(c.id)).slice(0, MAX_ANALYSED) : [];
+  const newOnes = watch.lastFacts?.commentIds ? (facts.comments ?? []).filter((c) => !known.has(c.id)) : [];
+  // Threads already open when the watch started (or before this was said at all) are said once, like new ones.
+  const existing = !watch.threadsReported && facts.state === "OPEN" && facts.comments ? facts.comments.filter((c) => c.openThread && !newOnes.includes(c)) : [];
+  if (facts.comments && !watch.threadsReported) next = { ...next, threadsReported: true };
+  const asExisting = (line: string) => line.replace(/^new /, "unresolved ").replace(/ left (\d+) review comment/, " has $1 unresolved review comment");
+  if (existing.length > 0) found.push(...commentEvents([], existing).map(asExisting));
+  const fresh = [...newOnes, ...existing].slice(0, MAX_ANALYSED);
   let analysed = false;
   if (settings.analyseComments && fresh.length > 0 && found.some(isCommentEvent)) {
     const model = await guardedModel(watch, ports, settings, session);
     const lines = model ? await logged(ports, watch, "comments", ports.analyseComments?.(model, watch, fresh)) : undefined;
     if (lines && lines.length > 0) {
+      lines.forEach((line, i) => { if (i >= newOnes.length) lines[i] = asExisting(line); });
       const at = found.findIndex(isCommentEvent);
       found = [...found.slice(0, at).filter((e) => !isCommentEvent(e)), ...lines, "ask the user whether to fix, answer or leave each; before working on one, read it (and its file and line) with its gh api path", ...found.slice(at).filter((e) => !isCommentEvent(e))];
       analysed = true;
     }
   }
   // Review comments on the code (a person's or Copilot's) are for the agent to address or answer.
-  const reviewed = analysed || found.some((event) => event.startsWith("new review comment") || / left \d+ review comments? \(/.test(event));
+  const reviewed = analysed || found.some((event) => /^(new|unresolved) review comment/.test(event) || / (left \d+|has \d+ unresolved) review comments? \(/.test(event));
   if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent" || reviewed);
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
