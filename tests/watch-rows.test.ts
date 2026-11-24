@@ -179,3 +179,12 @@ describe("watchRows: a PR whose state is being fetched from GitHub", () => {
     expect(watchRows([watch], "s1", Date.now())[0]!.updating).toBeUndefined();
   });
 });
+
+describe("watchRows: unresolved review comments are marked on the line", () => {
+  test("the count, for an open PR", () => {
+    const watch = aWatch({ id: "o/r#7", sessionID: "s1", lastFacts: aFacts({ review: "REVIEW_REQUIRED", unresolvedThreads: 3 }) });
+    expect(watchRows([watch], "s1", Date.now())[0]!.unresolvedComments).toBe(3);
+    const none = aWatch({ id: "o/r#8", sessionID: "s1", lastFacts: aFacts({ review: "REVIEW_REQUIRED" }) });
+    expect(watchRows([none], "s1", Date.now())[0]!.unresolvedComments).toBeUndefined();
+  });
+});

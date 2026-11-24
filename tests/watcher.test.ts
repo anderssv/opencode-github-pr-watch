@@ -748,13 +748,13 @@ describe("the daily review reminder says who it waits for", () => {
 });
 
 describe("new comments from collaborators are said, without their text", () => {
-  test("after the first read; informs, doesn't wake", async () => {
+  test("after the first read; a review comment wakes the agent", async () => {
     const before = aFacts({ review: "REVIEW_REQUIRED", commentIds: ["c1"], comments: [{ id: "c1", author: "anna", url: "u1" }] });
     const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["c1", "t1"], comments: [{ id: "c1", author: "anna", url: "u1" }, { id: "t1", author: "bob", path: "src/a.ts", url: "u2" }] };
     const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
     await tick(watchStarted({ lastSnapshot: "commented", lastFacts: before }), ports, settings());
     expect(ports.notifications[0]!.text).toContain("new review comment by bob on src/a.ts (u2)");
-    expect(ports.notifications[0]!.wake).toBe(false);
+    expect(ports.notifications[0]!.wake).toBe(true);
   });
 
   test("a failed read keeps the last one, so the next read doesn't report old comments as new", async () => {
@@ -867,5 +867,22 @@ describe("the reminder's hours are working hours", () => {
     ports.time = monday;
     await tick(watchStarted({ phase: "review", phaseSince: thursday, lastReminderAt: thursday, lastSnapshot: "waiting", lastFacts: aFacts(waiting) }), ports, settings());
     expect(ports.notifications[0]!.text).toContain("still waiting for code review (46 h)");
+  });
+});
+
+describe("new review comments wake the agent; conversation comments only inform", () => {
+  const before = aFacts({ review: "REVIEW_REQUIRED", commentIds: [], comments: [] });
+  test("Copilot's review comments wake it", async () => {
+    const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["t1"], comments: [{ id: "t1", author: "copilot-pull-request-reviewer", path: "a.ts", url: "u1", bot: true as const }] };
+    const ports = fakePorts({ snapshots: [aSnapshot("reviewed", after)] });
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: before }), ports, settings());
+    expect(ports.notifications[0]!.text).toContain("copilot-pull-request-reviewer left 1 review comment (u1)");
+    expect(ports.notifications[0]!.wake).toBe(true);
+  });
+  test("a conversation comment doesn't", async () => {
+    const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["c1"], comments: [{ id: "c1", author: "anna", url: "u1" }] };
+    const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: before }), ports, settings());
+    expect(ports.notifications[0]!.wake).toBe(false);
   });
 });

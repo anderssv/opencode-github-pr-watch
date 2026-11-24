@@ -23,6 +23,7 @@ interface Row {
   readonly track?: readonly Stage[];
   readonly attention?: true;
   readonly updating?: true;
+  readonly unresolvedComments?: number;
   readonly runUrl?: string;
   readonly waitingFor?: "code-review" | "run-approval";
   readonly runLinks?: readonly { readonly label: string; readonly url: string }[];
@@ -223,7 +224,22 @@ export default Plugin.define({
               </Show>
             </div>
             <Show when={line.row?.track} fallback={<div style={{ opacity: "0.6", "font-size": "12px" }}>{line.detail}</div>}>
-              {(track) => <Track stages={track()} after={line.after} />}
+              {(track) => (
+                <div style={{ display: "flex", "align-items": "center", gap: "8px", "flex-wrap": "wrap" }}>
+                  <Track stages={track()} after={line.after} />
+                  <Show when={line.row?.unresolvedComments}>
+                    {(count) => (
+                      <span
+                        title={`${count()} review comment thread${count() === 1 ? "" : "s"} nobody has resolved yet`}
+                        style={{ display: "inline-flex", "align-items": "center", gap: "3px", "font-size": "12px", color: "var(--text-warning, #d29922)" }}
+                      >
+                        <ctx.ui.Icon name="speech-bubble" size="small" />
+                        {count()}
+                      </span>
+                    )}
+                  </Show>
+                </div>
+              )}
             </Show>
           </div>
           <For each={shown("run") ? runLinks() : []}>

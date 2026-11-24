@@ -54,3 +54,19 @@ describe("commentEvents: new comments as facts", () => {
     expect(commentEvents([], many)).toEqual(["new comment by anna (u0)", "new comment by anna (u1)", "new comment by anna (u2)", "and 2 more new comments"]);
   });
 });
+
+describe("bots' review comments (Copilot's reviewer) count; their conversation comments don't", () => {
+  test("parsed with a bot mark", () => {
+    const bot = { author: { login: "copilot-pull-request-reviewer", __typename: "Bot" }, authorAssociation: "NONE" };
+    const read = parseComments(answer(
+      [node("c1", "codecov", { author: { login: "codecov", __typename: "Bot" }, authorAssociation: "NONE" })],
+      [{ isResolved: false, path: "src/a.ts", comments: { nodes: [node("t1", "x", bot), node("t2", "x", bot)] } }],
+    ));
+    expect(read.comments.map((c) => [c.id, c.author, c.bot])).toEqual([["t1", "copilot-pull-request-reviewer", true], ["t2", "copilot-pull-request-reviewer", true]]);
+  });
+
+  test("said once per bot, with how many and the first one's link", () => {
+    const bots = ["t1", "t2", "t3"].map((id) => ({ id, author: "copilot-pull-request-reviewer", path: "a.ts", url: `u-${id}`, bot: true as const }));
+    expect(commentEvents([], bots)).toEqual(["copilot-pull-request-reviewer left 3 review comments (u-t1)"]);
+  });
+});

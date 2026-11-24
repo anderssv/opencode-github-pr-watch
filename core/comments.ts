@@ -8,6 +8,8 @@ export interface PrComment {
   /** The file, for a review comment. */
   readonly path?: string;
   readonly url: string;
+  /** From a bot: only its review comments (Copilot's reviewer) are kept, not its conversation comments. */
+  readonly bot?: true;
 }
 
 export interface CommentRead {
@@ -49,12 +51,17 @@ export function parseComments(json: unknown): CommentRead {
     ...pr.comments.nodes.map((node) => ({ node, path: undefined as string | undefined })),
     ...pr.reviewThreads.nodes.flatMap((thread) => thread.comments.nodes.map((node) => ({ node, path: thread.path }))),
   ];
-  const counts = (node: CommentNode) =>
-    node.author !== null && node.author.__typename !== "Bot" && node.author.login !== data.viewer.login && COLLABORATORS.has(node.authorAssociation);
+  // A bot's review comments on the code (Copilot's reviewer) are review feedback; its conversation comments (coverage,
+  // dependency bots) are noise.
+  const isBot = (node: CommentNode) => node.author?.__typename === "Bot";
+  const counts = (node: CommentNode, path: string | undefined) =>
+    node.author !== null && node.author.login !== data.viewer.login && (isBot(node) ? path !== undefined : COLLABORATORS.has(node.authorAssociation));
   return {
     unresolvedThreads: pr.reviewThreads.nodes.filter((thread) => !thread.isResolved).length,
     commentIds: all.map(({ node }) => node.id),
-    comments: all.filter(({ node }) => counts(node)).map(({ node, path }) => ({ id: node.id, author: node.author!.login, ...(path ? { path } : {}), url: node.url })),
+    comments: all
+      .filter(({ node, path }) => counts(node, path))
+      .map(({ node, path }) => ({ id: node.id, author: node.author!.login, ...(path ? { path } : {}), url: node.url, ...(isBot(node) ? { bot: true as const } : {}) })),
   };
 }
 
@@ -63,7 +70,14 @@ const SHOWN = 3;
 /** "new review comment by bob on src/a.ts (link)" for each comment not seen before, at most three. */
 export function commentEvents(seen: readonly string[], comments: readonly PrComment[]): string[] {
   const known = new Set(seen);
-  const fresh = comments.filter((c) => !known.has(c.id));
+  const all = comments.filter((c) => !known.has(c.id));
+  // A bot's review comes as many comments at once: one line per bot.
+  const bots = [...new Set(all.filter((c) => c.bot).map((c) => c.author))].map((author) => {
+    const theirs = all.filter((c) => c.bot && c.author === author);
+    return `${author} left ${theirs.length} review comment${theirs.length === 1 ? "" : "s"} (${theirs[0]!.url})`;
+  });
+  const fresh = all.filter((c) => !c.bot);
+  if (bots.length > 0 && fresh.length === 0) return bots;
   const lines = fresh.slice(0, SHOWN).map((c) => (c.path ? `new review comment by ${c.author} on ${c.path} (${c.url})` : `new comment by ${c.author} (${c.url})`));
-  return fresh.length > SHOWN ? [...lines, `and ${fresh.length - SHOWN} more new comments`] : lines;
+  return [...bots, ...(fresh.length > SHOWN ? [...lines, `and ${fresh.length - SHOWN} more new comments`] : lines)];
 }

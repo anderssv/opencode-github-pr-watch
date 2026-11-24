@@ -17,6 +17,7 @@ const row = {
     draft: { type: "boolean" },
     attention: { type: "boolean", enum: [true] },
     updating: { type: "boolean", enum: [true] },
+    unresolvedComments: { type: "number" },
     forPr: { type: "string" },
     track: {
       type: "array",

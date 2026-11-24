@@ -374,7 +374,9 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   if (nowReady && found.length > 0 && !found.some((event) => event.includes("ready to merge"))) found.push("now ready to merge");
   // The agent is woken for what it can act on: something to fix. A person's turn and the PR moving on only inform.
   const actor = whoActs(facts, now);
-  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent");
+  // Review comments on the code (a person's or Copilot's) are for the agent to address or answer.
+  const reviewed = found.some((event) => event.startsWith("new review comment") || / left \d+ review comments? \(/.test(event));
+  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent" || reviewed);
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
   const stages = progressTrack(facts, now);
