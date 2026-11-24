@@ -83,6 +83,8 @@ export interface WatchSettings {
   readonly preferences: readonly string[];
   readonly stuckMs: number;
   readonly pipelineLimitMs?: number;
+  /** Let the light model read new comments and say what they ask (see the warning in the configuration docs). */
+  readonly analyseComments?: boolean;
 }
 
 export interface WatchPorts {
@@ -388,7 +390,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   const known = new Set(watch.lastFacts?.commentIds ?? []);
   const fresh = watch.lastFacts?.commentIds ? (facts.comments ?? []).filter((c) => !known.has(c.id)).slice(0, MAX_ANALYSED) : [];
   let analysed = false;
-  if (fresh.length > 0 && found.some(isCommentEvent)) {
+  if (settings.analyseComments && fresh.length > 0 && found.some(isCommentEvent)) {
     const model = await guardedModel(watch, ports, settings, session);
     const lines = model ? await logged(ports, watch, "comments", ports.analyseComments?.(model, watch, fresh)) : undefined;
     if (lines && lines.length > 0) {

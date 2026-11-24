@@ -35,9 +35,12 @@ All optional:
 "options": {
   "preferences": ["haiku", "mini", "flash"], // which model of the session's provider judges changes
   "maxMinutes": 30,                           // time limit for a build or deploy with too little history
-  "debugLog": true                            // JSON-lines log of every decision; false, or a path
+  "debugLog": true,                           // JSON-lines log of every decision; false, or a path
+  "analyseComments": false                    // let the light model summarise new comments; read the warning first
 }
 ```
+
+`analyseComments` puts what other people's comments say (as a model's short summary) into the agent's context, a route for prompt injection. Read [the warning](docs/configuration.md#reading-comments-analysecomments) before turning it on.
 
 The full list is in [Configuration](docs/configuration.md).
 

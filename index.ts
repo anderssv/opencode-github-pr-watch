@@ -45,6 +45,8 @@ interface PrWatchOptions {
   debugLog?: boolean | string;
   /** Names of jobs that only detect changes or report a status (monorepo bookkeeping). Defaults cover common names. */
   bookkeepingJobs?: string[];
+  /** Let the light model read new comments' text and summarise them for the session. Default false: see the warning in docs/configuration.md. */
+  analyseComments?: boolean;
 }
 
 const ERROR_RETRY_MS = 60_000;
@@ -154,6 +156,7 @@ export default Plugin.define({
       preferences: options.preferences ?? DEFAULT_PREFERENCES,
       stuckMs: (options.stuckMinutes ?? 30) * 60_000,
       pipelineLimitMs: (options.maxMinutes ?? 30) * 60_000,
+      analyseComments: options.analyseComments === true,
     };
 
     const sessionView = async (sessionID: string): Promise<SessionView> => {

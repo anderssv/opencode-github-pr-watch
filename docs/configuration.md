@@ -13,7 +13,8 @@
         "ghPath": "/opt/homebrew/bin/gh", // optional; gh is found on your login shell's PATH (mise shims skipped), then in /opt/homebrew/bin and /usr/local/bin
         "maxMinutes": 30, // limit when a workflow has too little history, and for auto-merge/auto-update waits
         "debugLog": true, // JSON-lines debug log at ~/.local/state/opencode-github-pr-watch/debug.jsonl; false, or a path
-        "bookkeepingJobs": ["detect changes", "build status"] // jobs that only detect changes or report a status in monorepos; defaults cover common names
+        "bookkeepingJobs": ["detect changes", "build status"], // jobs that only detect changes or report a status in monorepos; defaults cover common names
+        "analyseComments": false // let the light model read new comments and summarise them; read the warning below first
       }
     }
   ]
@@ -21,6 +22,14 @@
 ```
 
 If no preference matches, the session's own model is used.
+
+## Reading comments (`analyseComments`)
+
+Off by default. Then a new comment is said as who and where only ("new review comment by bob on src/a.ts (link)"), unresolved threads are marked on the line, and the agent reads a comment itself if it needs to.
+
+When on, the light model reads the text of new comments (up to 10 per check) and the session gets one plain-language line for each: what kind it is (change requested, question, small suggestion, comment), what it asks in the model's words, and where it is, with a `gh api` path the agent can read it with. The agent is woken and asked to check with you whether to fix, answer or leave each.
+
+> **Warning: consider this carefully before turning it on.** A comment is text written by someone else, and with this option its meaning reaches your agent's context, which the agent then acts on. That is the classic route for prompt injection. The plugin narrows it as far as it can: only comments from the repo's collaborators and from review bots are read; the model runs with no tools, session or history (stateless generation), is told the comments are data to describe and never instructions, and each comment is fenced so it can't break out; what comes back is cut to one plain line of at most 140 characters with links, code and markup removed; the comment's own text never reaches the session. A summary can still carry a manipulated meaning ("asks you to delete the prod environment"), so the agent is told to ask you before acting. Turn it on only for repos where everyone who can comment is trusted, and keep confirming what the agent does with comments.
 
 ## Debug log
 
