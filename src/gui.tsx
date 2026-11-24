@@ -13,6 +13,23 @@ import { PrWatch } from "../rpc";
 import { STAGE_MARKS as STAGE_MARK, type Stage, type StageState } from "../core/progress";
 import { COLLAPSED_GROUPS_KEY, groupKey, pruneCollapsed, readCollapsed, toggleCollapsed, topicGroupNames, type ExistingGroups } from "../core/collapsed-groups";
 import { HIDDEN_BUTTONS_KEY, ROW_BUTTONS, readHiddenButtons, toggleButton, type RowButton } from "../core/row-buttons";
+import {
+  EXPLAINED_KEY,
+  groupStartsOpen,
+  PR_LIST_KEY,
+  readPrList,
+  reviewGroups,
+  type PrList,
+  markExplained,
+  pruneExplained,
+  readExplained,
+  EXPLAIN_LABELS,
+  REVIEW_LABEL,
+  reviewUrl,
+  explainStep,
+  reviewId,
+  type ReviewRequest,
+} from "../core/review-requests";
 
 interface Row {
   readonly id: string;
@@ -106,6 +123,7 @@ export default Plugin.define({
       prompt: async (sessionID, text) => void (await ctx.client.session.prompt({ sessionID: sessionID as never, text })),
       openSession: (server, sessionID) => ctx.tabs.open({ server, id: sessionID as never }, { focus: true }),
       copy: (text) => ctx.system.copy(text),
+      reviewRequests: async () => ((await ctx.client.rpc(PrWatch).reviewRequests({})) as { prs: ReviewRequest[] }).prs,
     };
     const port = demo ? demoPort(() => ctx.sessions.current()?.id ?? "", Date.now) : appPort;
 
@@ -190,6 +208,8 @@ export default Plugin.define({
       readonly onNewSession?: () => void;
       /** Opens the session watching the PR. */
       readonly onOpenSession?: () => void;
+      /** Explain and review: only on PRs waiting for the user's review. */
+      readonly actions?: readonly { readonly icon: IconName; readonly label: string; readonly onClick: () => void }[];
     }): JSX.Element => {
       const runLinks = () => line.row?.runLinks ?? (line.row?.runUrl ? [{ label: "Open the run", url: line.row.runUrl }] : []);
       return (
@@ -263,6 +283,7 @@ export default Plugin.define({
           <Show when={shown("new-session") && line.onNewSession}>
             {(start) => <TipButton icon="new-session" label="New session about this PR" size="small" onClick={() => start()()} />}
           </Show>
+          <For each={line.actions ?? []}>{(action) => <TipButton icon={action.icon} label={action.label} size="small" onClick={() => action.onClick()} />}</For>
           <Show when={shown("github")}>
             <TipButton icon="github" label="Open the PR" size="small" onClick={() => ctx.system.openExternal(line.url)} />
           </Show>
@@ -302,6 +323,35 @@ export default Plugin.define({
         .refreshPrs(merged)
         .then(() => setMyPrsError(undefined))
         .catch((err: unknown) => setMyPrsError(errorText(err)))
+        .finally(() => setMyPrsLoading((n) => n - 1));
+    };
+
+    // The PRs waiting for the user's review, and which commit of each was explained: Explain comes before Review, and
+    // new commits send it back to Explain. Kept across restarts; PRs no longer waiting are forgotten.
+    const [reviews, setReviews] = createSignal<readonly ReviewRequest[]>();
+    const [reviewsError, setReviewsError] = createSignal<string>();
+    const [explained, setExplained] = createSignal<Readonly<Record<string, string>>>(readExplained(localStorage.getItem(EXPLAINED_KEY)));
+    const [prList, setPrList] = createSignal<PrList>(readPrList(localStorage.getItem(PR_LIST_KEY)));
+    const chooseList = (list: PrList) => {
+      setPrList(list);
+      localStorage.setItem(PR_LIST_KEY, list);
+    };
+    // Repo groups the user opened or closed in the review list; the others follow groupStartsOpen.
+    const [reviewGroupOpen, setReviewGroupOpen] = createSignal<Readonly<Record<string, boolean>>>({});
+    const saveExplained = (next: Readonly<Record<string, string>>) => {
+      setExplained(next);
+      localStorage.setItem(EXPLAINED_KEY, JSON.stringify(next));
+    };
+    const loadReviews = () => {
+      setMyPrsLoading((n) => n + 1);
+      void ops
+        .loadReviews()
+        .then((prs) => {
+          setReviews(prs);
+          setReviewsError(undefined);
+          saveExplained(pruneExplained(explained(), prs.map(reviewId)));
+        })
+        .catch((err: unknown) => setReviewsError(errorText(err)))
         .finally(() => setMyPrsLoading((n) => n - 1));
     };
 
@@ -352,6 +402,7 @@ export default Plugin.define({
       const load = () => {
         loadMyPrs();
         loadTopics(props.session.id);
+        loadReviews();
       };
       const choices = () => choicesFor(props.session.id);
       const choose = <K extends keyof PrsChoices>(key: K, value: PrsChoices[K]) => chooseFor(props.session.id, key, value);
@@ -406,6 +457,90 @@ export default Plugin.define({
           />
         );
       };
+
+      // A PR waiting for the user's review: Explain (optional) opens a review session; Review opens the PR's changed
+      // files on GitHub, where the user reviews. The plugin never writes a review itself.
+      const ReviewLine = (line: { readonly pr: ReviewRequest }): JSX.Element => {
+        const id = () => reviewId(line.pr);
+        const step = () => explainStep(explained()[id()], line.pr.headSha);
+        const explain = () => {
+          const previous = step() === "explain-changes" ? explained()[id()] : undefined;
+          void ops.explain(props.session, line.pr, previous).then((ok) => ok && saveExplained(markExplained(explained(), id(), line.pr.headSha)));
+        };
+        const review = () => ctx.system.openExternal(reviewUrl(line.pr));
+        return (
+          <PrLineView
+            text={
+              <>
+                #{line.pr.number} {line.pr.title}
+              </>
+            }
+            detail={`by ${line.pr.author} · ${lineDetail(line.pr, false, undefined, Date.now())}`}
+            url={line.pr.url}
+            actions={[
+              { icon: "glasses", label: EXPLAIN_LABELS[step()], onClick: explain },
+              { icon: "review", label: REVIEW_LABEL, onClick: review },
+            ]}
+          />
+        );
+      };
+
+      // The PRs waiting for the user's review, by repo: a repo with up to two PRs starts open, with more closed.
+      const ReviewsList = (): JSX.Element => (
+        <>
+          <div style={{ display: "flex", "align-items": "center", gap: "6px" }}>
+            <span style={{ flex: "1", opacity: "0.7", "font-size": "12px" }}>
+              Open PRs where your review is requested, directly or through a team. Explain in a session if you like, then review on GitHub.
+            </span>
+            <TipButton icon="refresh" size="small" label="Reload" onClick={loadReviews} />
+          </div>
+          <Show when={reviewsError()}>{(text) => <div style={{ color: "var(--text-danger, #c33)" }}>Could not load the PRs waiting for your review: {text()}</div>}</Show>
+          <Show when={reviews()} fallback={<Show when={!reviewsError()}><div style={{ opacity: "0.6" }}>Loading…</div></Show>}>
+            {(loaded) => (
+              <Show when={loaded().length > 0} fallback={<div style={{ opacity: "0.6" }}>Nothing is waiting for your review.</div>}>
+                <Index each={reviewGroups(loaded())}>
+                  {(group, index) => {
+                    const open = () => reviewGroupOpen()[group().repo] ?? groupStartsOpen(group().prs.length);
+                    const toggle = () => setReviewGroupOpen((now) => ({ ...now, [group().repo]: !open() }));
+                    const slash = () => group().repo.indexOf("/");
+                    return (
+                      <section
+                        style={{
+                          display: "flex", "flex-direction": "column", gap: "6px",
+                          ...(index > 0 ? { "border-top": "1px solid rgba(127,127,127,0.2)", "padding-top": "12px" } : {}),
+                        }}
+                      >
+                        <div
+                          role="button"
+                          tabindex="0"
+                          aria-expanded={open()}
+                          title={open() ? "Collapse this group" : "Expand this group"}
+                          onClick={toggle}
+                          onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), toggle())}
+                          style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer", "min-width": "0" }}
+                        >
+                          <span style={{ width: "10px", opacity: "0.6", "font-size": "11px" }}>{open() ? "▾" : "▸"}</span>
+                          <ctx.ui.Icon name="folder" size="small" />
+                          <div style={{ flex: "1", "min-width": "0", "overflow-wrap": "anywhere" }}>
+                            <span style={{ opacity: "0.6" }}>{group().repo.slice(0, slash() + 1)}</span>
+                            <span style={{ "font-weight": "600" }}>{group().repo.slice(slash() + 1)}</span>
+                          </div>
+                          <span style={{ opacity: "0.6", "font-size": "12px" }}>{group().prs.length}</span>
+                        </div>
+                        <Show when={open()}>
+                          <div style={{ display: "flex", "flex-direction": "column", gap: "6px", "padding-left": "38px" }}>
+                            <Index each={group().prs}>{(pr) => <ReviewLine pr={pr()} />}</Index>
+                          </div>
+                        </Show>
+                      </section>
+                    );
+                  }}
+                </Index>
+              </Show>
+            )}
+          </Show>
+        </>
+      );
 
       const Groups = (groups: { readonly groups: readonly PrGroupView[]; readonly merged: boolean }): JSX.Element => (
         <Index each={groups.groups}>
@@ -469,6 +604,27 @@ export default Plugin.define({
           </div>
           {/* About every watch, not the list: above the filters, where it's seen first. */}
           <Show when={store().paused}>{(text) => <div style={{ color: "var(--text-warning, #d29922)" }}>{text()}</div>}</Show>
+          {/* Which list: the user's own PRs, or the PRs waiting for their review. */}
+          <div role="tablist" aria-label="Which PRs" style={{ display: "flex", gap: "2px", padding: "2px", "border-radius": "8px", border: "1px solid rgba(127,127,127,0.4)", "align-self": "flex-start" }}>
+            <For each={[{ value: "mine" as const, label: "My PRs" }, { value: "reviews" as const, label: `PRs waiting for review${reviews()?.length ? ` (${reviews()!.length})` : ""}` }]}>
+              {(option) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={prList() === option.value}
+                  onClick={() => chooseList(option.value)}
+                  style={{
+                    all: "unset", cursor: "pointer", padding: "4px 12px", "border-radius": "6px", "font-size": "12px", "white-space": "nowrap",
+                    ...(prList() === option.value ? { background: "rgba(127,127,127,0.25)", "font-weight": "600" } : { opacity: "0.75" }),
+                  }}
+                >
+                  {option.label}
+                </button>
+              )}
+            </For>
+          </div>
+          <Show when={prList() === "mine"} fallback={<ReviewsList />}>
+          <>
           <input
             type="search"
             placeholder="Search title, repo or #number"
@@ -654,6 +810,8 @@ export default Plugin.define({
                 </Show>
               </>
             )}
+          </Show>
+          </>
           </Show>
         </div>
       );

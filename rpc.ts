@@ -57,6 +57,22 @@ const myPr = {
   additionalProperties: false,
 } as const;
 
+const reviewRequest = {
+  type: "object",
+  properties: {
+    repo: { type: "string" },
+    number: { type: "number" },
+    title: { type: "string" },
+    url: { type: "string" },
+    draft: { type: "boolean" },
+    createdAt: { type: "string" },
+    author: { type: "string" },
+    headSha: { type: "string" },
+  },
+  required: ["repo", "number", "title", "url", "draft", "createdAt", "author", "headSha"],
+  additionalProperties: false,
+} as const;
+
 /** What the desktop and terminal UI parts read from the server part: the session's watches, and when they change. */
 export const PrWatch = Rpc.define({
   id: "pr-watch",
@@ -138,6 +154,11 @@ export const PrWatch = Rpc.define({
     checkNow: {
       input: { type: "object", additionalProperties: false },
       output: { type: "object", properties: { checking: { type: "boolean" } }, required: ["checking"], additionalProperties: false },
+    },
+    // The open PRs waiting for the gh user's review that they can approve.
+    reviewRequests: {
+      input: { type: "object", additionalProperties: false },
+      output: { type: "object", properties: { prs: { type: "array", items: reviewRequest } }, required: ["prs"], additionalProperties: false },
     },
   },
   events: {

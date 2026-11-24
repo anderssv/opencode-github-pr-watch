@@ -20,7 +20,8 @@ import { Plugin } from "@opencode/plugin";
 import { botAdvicePrompt, countRun, failureExpired, seenFailures, diagnosisPrompt, parseBotAdvice, parseDiagnosis, refreshHistory } from "./core/advice";
 import { limitFromDurations, parseStallVerdict, stallPrompt } from "./core/timing";
 import { environmentsPrompt, matchWorkflow, parseEnvironments, parseRole, rolePrompt, type WorkflowRole } from "./core/workflow-role";
-import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst, type ReadPr, useCallCache } from "./core/github";
+import { configureGh, githubPaused, myMergedPrs, myOpenPrs, setGithubDebug, workflowSummary, type EnvironmentGuess, type RoleLookup, currentBranchPrUrl, failureExcerpt, runFailureExcerpt, runSnapshot, viewRun, runningPipelines, runProgress, workflowDurations, parsePrReference, prForRun, prSnapshot, resolveRepo, runGh, quickSnapshot, runGhFirst, type ReadPr, useCallCache, reviewRequests } from "./core/github";
+import type { ReviewRequest } from "./core/review-requests";
 import { findBranchUpdates, findPrMerges, findRunReruns , alreadyUpToDate , findBotRefreshes, commandDirectory, findGitPushes, findPrCreates, prUrlsIn } from "./core/merge-detection";
 import { formatWatch } from "./core/listing";
 import { beginCheck, claimOrphan, claimPolling, endCheck, dropMessagesFor, handToOwner, onCheckNow, ownsPolling, processState, releasePolling, requestChecks, resumeChanged, shouldAnnounceResume } from "./core/runtime";
@@ -454,6 +455,7 @@ export default Plugin.define({
       set: (modelKey: string, topics: readonly Topic[]) => ctx.storage.set(`topics/${modelKey}`, topics as never),
     };
     const searches = new Map<string, { at: number; prs: Promise<MyPr[]> }>();
+    let reviewSearch: { at: number; prs: Promise<ReviewRequest[]> } | undefined;
     const cachedSearch = (key: string, search: () => Promise<MyPr[]>) => {
       const cached = searches.get(key);
       if (cached && Date.now() - cached.at < 60_000) return cached.prs;
@@ -492,6 +494,17 @@ export default Plugin.define({
         const checking = requestChecks(shared, Date.now());
         debug("check-now", { checking });
         return { checking };
+      },
+      // Kept a minute like the other searches: every open panel asks.
+      reviewRequests: async () => {
+        const me = await ghUser();
+        if (!reviewSearch || Date.now() - reviewSearch.at >= 60_000) {
+          const prs = reviewRequests(runGh, me, directory);
+          reviewSearch = { at: Date.now(), prs };
+          // A failed search isn't kept: the next ask tries again.
+          prs.catch(() => (reviewSearch = undefined));
+        }
+        return { prs: await reviewSearch.prs };
       },
       // Every session's watches, with the session watching each: the one store the pill and the PRs tab both read.
       watches: async () => {

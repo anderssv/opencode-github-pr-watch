@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { activities, errorText, panelOperations, type PanelPort } from "../core/panel-operations";
 import type { Change } from "../core/store";
 import type { MyPr } from "../core/my-prs";
+import { explainPrompt, type ReviewRequest } from "../core/review-requests";
 
 const pr = (repo: string, number: number): MyPr => ({ repo, number, title: `Fix ${number}`, url: `https://github.com/${repo}/pull/${number}`, draft: false, createdAt: "2026-11-10T10:00:00Z" });
 
@@ -46,7 +47,13 @@ class FakePort implements PanelPort {
   async prompt(sessionID: string, text: string) { this.fail(`prompt ${sessionID} ${text}`); }
   openSession(server: string, sessionID: string) { this.calls.push(`open ${server} ${sessionID}`); }
   async copy(text: string) { this.fail(`copy ${text}`); }
+  async reviewRequests() {
+    this.fail("reviewRequests");
+    return [request];
+  }
 }
+
+const request: ReviewRequest = { repo: "o/r", number: 7, title: "Add login", url: "https://github.com/o/r/pull/7", draft: false, createdAt: "", author: "colleague", headSha: "abc123" };
 
 const setup = () => {
   const port = new FakePort();
@@ -147,6 +154,45 @@ describe("check now: the reload button makes every watch check GitHub", () => {
     expect(await ops.checkNow()).toBe(false);
     expect(log.at(-1)).toBe("Could not ask the watches to check: checkNow broke");
   });
+});
+
+describe("reviews: list the PRs waiting for review, and explain one in its own session", () => {
+  test("loading the PRs waiting for review reports progress", async () => {
+    const { port, log, ops } = setup();
+    expect(await ops.loadReviews()).toEqual([request]);
+    expect(port.calls).toEqual(["reviewRequests"]);
+    expect(log).toEqual(["… Loading the PRs waiting for your review…"]);
+  });
+
+  test("explain: a review session with the open session's model, asked to explain that commit, then opened", async () => {
+    const { port, ops } = setup();
+    expect(await ops.explain(from, request)).toBe(true);
+    expect(port.calls).toEqual([
+      "session ses_1",
+      'createSession Review: o/r#7 Add login in /work with {"providerID":"p","id":"m"} build',
+      `prompt ses_new ${explainPrompt(request)}`,
+      "open local ses_new",
+    ]);
+  });
+
+  test("explaining again after new commits asks about the changes since the explained commit", async () => {
+    const { port, ops } = setup();
+    await ops.explain(from, { ...request, headSha: "new456" }, "abc123");
+    expect(port.calls[2]).toContain("abc123..new456");
+  });
+
+  test("a failed explanation says why and returns false, so the button stays on Explain", async () => {
+    const { port, log, ops } = setup();
+    port.failing = "createSession";
+    expect(await ops.explain(from, request)).toBe(false);
+    expect(log.at(-1)).toBe("Could not start a review session: createSession broke");
+  });
+
+
+
+
+
+
 });
 
 describe("activities: the work in progress the top line shows", () => {

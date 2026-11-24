@@ -81,5 +81,8 @@ export function demoPort(sessionID: () => string, now: () => number): PanelPort 
     prompt: async () => undefined,
     openSession: () => undefined,
     copy: async () => undefined,
+    reviewRequests: async () => [
+      { repo: "acme/api", number: 88, title: "Rate limit the login endpoint", url: "https://github.com/acme/api/pull/88", draft: false, createdAt: new Date(now() - 5 * 3_600_000).toISOString(), author: "colleague", headSha: "4f2a9c1e0b7d" },
+    ],
   };
 }
