@@ -87,7 +87,7 @@ const REPO = /^([\w.-]+)\/([\w.-]+)$/;
 
 // Only the state and the counts, so the marker is the same whether or not the check list is in the answer.
 /** Raised when the batcher changes, so a running process replaces the one it kept across a reload. */
-export const PR_BATCHER_VERSION = 3;
+export const PR_BATCHER_VERSION = 4;
 
 const countsOf = (node: Node) => {
   const rollup = node.commits?.nodes?.[0]?.commit?.statusCheckRollup;

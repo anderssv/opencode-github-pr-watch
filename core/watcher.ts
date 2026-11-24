@@ -46,7 +46,7 @@ export interface Watch {
   /** Started from the quick read: the first full check becomes the baseline instead of being compared with it. */
   readonly provisional?: boolean;
   /** The PR's unresolved threads have been said once (at the start, or when that rule came in). */
-  readonly threadsReported?: true;
+  readonly unresolvedSaid?: true;
   /** How the state was read when this watch's baseline was taken; see SNAPSHOT_VERSION. */
   readonly snapshotVersion?: number;
   readonly stuckReported?: boolean;
@@ -393,8 +393,10 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   const known = new Set(watch.lastFacts?.commentIds ?? []);
   const newOnes = watch.lastFacts?.commentIds ? (facts.comments ?? []).filter((c) => !known.has(c.id)) : [];
   // Threads already open when the watch started (or before this was said at all) are said once, like new ones.
-  const existing = !watch.threadsReported && facts.state === "OPEN" && facts.comments ? facts.comments.filter((c) => c.openThread && !newOnes.includes(c)) : [];
-  if (facts.comments && !watch.threadsReported) next = { ...next, threadsReported: true };
+  const existing = !watch.unresolvedSaid && facts.state === "OPEN" && facts.comments ? facts.comments.filter((c) => c.openThread && !newOnes.includes(c)) : [];
+  // Only once the comments come from a read that marks open threads (a batcher kept from before doesn't).
+  const markedRead = (facts.unresolvedThreads ?? 0) === 0 || (facts.comments ?? []).some((c) => c.openThread);
+  if (facts.comments && markedRead) next = { ...next, unresolvedSaid: true };
   const asExisting = (line: string) => line.replace(/^new /, "unresolved ").replace(/ left (\d+) review comment/, " has $1 unresolved review comment");
   if (existing.length > 0) found.push(...commentEvents([], existing).map(asExisting));
   const fresh = [...newOnes, ...existing].slice(0, MAX_ANALYSED);
