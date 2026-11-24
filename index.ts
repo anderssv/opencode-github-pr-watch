@@ -53,7 +53,8 @@ const phaseFields = (facts: PrFacts, now: number) => {
   const current = phaseOf(facts, now);
   return "phase" in current ? { phase: current.phase, phaseSince: now } : {};
 };
-const DIGEST_WINDOW_MS = 20_000;
+// As long as a round of checks: everything one round says to a session comes as one message.
+const DIGEST_WINDOW_MS = 30_000;
 // A post to a session that hasn't answered in this time is taken as lost (its instance may have been disposed).
 const DELIVERY_TIMEOUT_MS = 30_000;
 const DELIVERY_RETRY_MS = 60_000;
