@@ -1,4 +1,5 @@
 import { prList, prSessionPrompt, type MyPr } from "./my-prs";
+import { explainPrompt, reviewId, type ReviewRequest } from "./review-requests";
 import type { Topic } from "./topics";
 import type { Change } from "./store";
 import type { WatchRowLike } from "./prs-view";
@@ -21,6 +22,8 @@ export interface PanelPort {
   prompt(sessionID: string, text: string): Promise<void>;
   openSession(server: string, sessionID: string): void;
   copy(text: string): Promise<void>;
+  /** The PRs waiting for the gh user's review. */
+  reviewRequests(): Promise<readonly ReviewRequest[]>;
 }
 
 export interface Feedback {
@@ -121,6 +124,29 @@ export function panelOperations(port: PanelPort, apply: (change: Change) => void
         await port.copy(prList(prs));
         say(`Copied ${prs.length} PR${prs.length === 1 ? "" : "s"} from ${name}.`);
       }, "Could not copy"),
+
+    /** Throws, so the tab can show the error. */
+    loadReviews: () => track("Loading the PRs waiting for your review…", port.reviewRequests()),
+
+    /**
+     * A new session that summarises and reviews the PR at its head commit, with the open session's model and agent, in
+     * its folder. With the commit explained before, it asks about the changes since. True when the session started.
+     */
+    explain: (from: PanelSession, pr: ReviewRequest, previousSha?: string) =>
+      act(
+        () =>
+          track(
+            `Starting a review session for ${reviewId(pr)}…`,
+            (async () => {
+              const current = await port.session(from.id);
+              const id = await port.createSession({ title: `Review: ${reviewId(pr)} ${pr.title}`, directory: from.directory, model: current.model, agent: current.agent });
+              await port.prompt(id, explainPrompt(pr, previousSha));
+              port.openSession(from.server.id, id);
+            })(),
+          ),
+        "Could not start a review session",
+      ),
+
   };
 }
 

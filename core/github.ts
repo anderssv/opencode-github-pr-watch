@@ -12,6 +12,7 @@ import { deployPossible, startsOnMerge, startsOnPullRequest, workflowEnvironment
 import { checkName, factsFrom, isDeployJob, latestAttempts, pipelineChecks, summaryLine, type CheckView, type JobView, type PrFacts, type PrView, type RunWithJobs } from "./pr-facts";
 import { noDebugLog, tolerate, type DebugLog } from "./debug-log";
 import { COMMENTS_QUERY, parseComments, type CommentRead } from "./comments";
+import { REVIEW_REQUESTS_QUERY, reviewRequestsFrom, type ReviewRequest } from "./review-requests";
 import { afterSuccess, budgetOf, classifyGhError, healthAfter, pausedText } from "./github-health";
 import { processState, sharedMap } from "./runtime";
 import { myPrFrom, type MyPr, type SearchedPr } from "./my-prs";
@@ -866,4 +867,9 @@ export const useCallCache = (cache: CallCache | undefined) => void (callCache = 
 const SHARED_MS = 0;
 function cached<T>(key: string, ttlMs: number | ((value: T) => number), read: () => Promise<T>): Promise<T> {
   return callCache ? callCache.get(key, ttlMs, read) : read();
+}
+
+/** The open PRs waiting for the gh user's review, in one search. */
+export async function reviewRequests(gh: Gh, me: string, cwd: string): Promise<ReviewRequest[]> {
+  return reviewRequestsFrom(JSON.parse(await gh(["api", "graphql", "-f", `query=${REVIEW_REQUESTS_QUERY}`], cwd)), me);
 }
