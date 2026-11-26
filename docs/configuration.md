@@ -48,4 +48,4 @@ Find one watch's history with `grep '"id":"o/r#123"' ~/.local/state/opencode-git
 
 ## Notifications
 
-Every message is posted to the session, which marks it as updated; only some wake the agent (see [How watching works](how-it-works.md)).
+Only what the agent can act on is posted to the session, and it wakes the agent; everything else is shown by the pill and the PRs tab (see [How watching works](how-it-works.md#what-goes-to-the-session)).

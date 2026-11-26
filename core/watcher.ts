@@ -155,6 +155,7 @@ export function judgePrompt(watch: Watch, snapshot: string): string {
     "- notify: something unexpected or worth acting on that the events above don't cover (a run that 'succeeded'",
     "  but logs a rollback, a check unexpectedly slow or cancelled).",
     "Never guess what anyone intended or wanted; state what happened and leave the judgement to the reader.",
+    "For notify, who: \"agent\" when the coding agent can act on it (fix, rerun, answer), \"person\" when only a person can (approve, review, decide).",
     "Skipped jobs and checks are expected: the pipelines skip steps by design (for example deploy jobs on PR builds,",
     "or components a change didn't touch). Never report a skipped step.",
     "Jobs are created as a run reaches them, and a job list can be partial or ordered differently between two states.",
@@ -411,9 +412,12 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
       analysed = true;
     }
   }
-  // Review comments on the code (a person's or Copilot's) are for the agent to address or answer.
-  const reviewed = analysed || found.some((event) => /^(new|unresolved) review comment/.test(event) || / (left \d+|has \d+ unresolved) review comments? \(/.test(event));
-  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent" || reviewed);
+  // Comments (a person's, or Copilot's on the code) are for the agent to address or answer.
+  const reviewed = analysed || found.some(isCommentEvent);
+  // Ready to merge goes to the agent (it may be the one to merge), saying whether the user has to be involved.
+  const readyNow = nowReady && !quietWait && !facts.autoMerge;
+  if (readyNow) found = found.map((event) => (event.endsWith("ready to merge") ? event.replace(/ready to merge$/, readyText(facts)) : event));
+  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent" || reviewed || readyNow);
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
   const stages = progressTrack(facts, now);
@@ -459,7 +463,7 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
         ports.debug?.("model-answer-invalid", { id: watch.id, call: "judge", model: `${resolved.model.providerID}/${resolved.model.id}`, problem, answer: answer.slice(0, 1_000) }),
       );
       ports.debug?.("judge", { id: watch.id, model: `${resolved.model.providerID}/${resolved.model.id}`, verdict: verdict.kind, ...("reason" in verdict ? { reason: verdict.reason } : {}) });
-      if (verdict.kind !== "wait") await say(`${verdict.reason} ${summary}`, true);
+      if (verdict.kind !== "wait") await say(`${verdict.reason} ${summary}`, verdict.who !== "person");
       const { judgeFailingSince: _since, judgeFailureReported: _reported, ...rest } = next;
       next = rest;
     } catch (err) {
@@ -554,3 +558,11 @@ async function logged<T>(ports: WatchPorts, watch: Watch, event: string, call: P
 }
 
 const sameFolder = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
+
+/** Whether merging needs the user: a deploy waiting for an approval follows, a deploy follows, or nothing deploys. */
+export function readyText(facts: PrFacts): string {
+  const expected = facts.expectedDeploy;
+  if (expected && expected.approval.length > 0) return `ready to merge; the user's involvement is required: merging starts a deploy that needs approval for ${expected.approval.join(", ")}`;
+  if (expected && expected.jobs.length > 0) return `ready to merge; the user's involvement is recommended: merging deploys (${expected.jobs.length} job${expected.jobs.length === 1 ? "" : "s"})`;
+  return "ready to merge; nothing deploys on merge, so the agent can merge if the user asked it to";
+}

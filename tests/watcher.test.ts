@@ -705,11 +705,11 @@ describe("what wakes the agent: only what it can act on", () => {
     expect(ports.notifications.map((n) => n.wake)).toEqual([true]);
   });
 
-  test("a change of step, or a person's turn, only informs", async () => {
+  test("a change of step, or a person's turn, only informs; ready to merge goes to the agent", async () => {
     const ports = fakePorts({ snapshots: [aSnapshot("waiting", { review: "REVIEW_REQUIRED" }), aSnapshot("ready", {})] });
     const first = await tick(watchStarted({ lastSnapshot: "running", lastFacts: aFacts({ checks: "PENDING", review: "REVIEW_REQUIRED" }) }), ports, settings());
     await tick(first.watch, ports, settings());
-    expect(ports.notifications.map((n) => n.wake)).toEqual([false, false]);
+    expect(ports.notifications.map((n) => n.wake)).toEqual([false, true]);
   });
 
   test("the end wakes it", async () => {
@@ -879,11 +879,11 @@ describe("new review comments wake the agent; conversation comments only inform"
     expect(ports.notifications[0]!.text).toContain("copilot-pull-request-reviewer left 1 review comment (u1)");
     expect(ports.notifications[0]!.wake).toBe(true);
   });
-  test("a conversation comment doesn't", async () => {
+  test("a conversation comment does too", async () => {
     const after = { review: "REVIEW_REQUIRED" as const, commentIds: ["c1"], comments: [{ id: "c1", author: "anna", url: "u1" }] };
     const ports = fakePorts({ snapshots: [aSnapshot("commented", after)] });
     await tick(watchStarted({ lastSnapshot: "before", lastFacts: before }), ports, settings());
-    expect(ports.notifications[0]!.wake).toBe(false);
+    expect(ports.notifications[0]!.wake).toBe(true);
   });
 });
 
@@ -929,5 +929,41 @@ describe("unresolved threads already there are said once", () => {
     expect(ports.notifications[0]!.wake).toBe(true);
     await tick(first.watch, ports, settings());
     expect(ports.notifications.length).toBe(1);
+  });
+});
+
+describe("ready to merge goes to the agent, saying whether the user is needed", () => {
+  const approving = aFacts({ review: "REVIEW_REQUIRED" });
+  const ready = (extra: Record<string, unknown>) => ({ review: "APPROVED" as const, ...extra });
+  const say = async (extra: Record<string, unknown>) => {
+    const ports = fakePorts({ snapshots: [aSnapshot("ready", ready(extra))] });
+    await tick(watchStarted({ lastSnapshot: "waiting", lastFacts: approving }), ports, settings());
+    return ports.notifications[0]!;
+  };
+
+  test("a deploy needing approval follows: required", async () => {
+    const n = await say({ expectedDeploy: { jobs: ["DEPLOY - Prod"], approval: ["prod"] } });
+    expect(n.text).toContain("ready to merge; the user's involvement is required: merging starts a deploy that needs approval for prod");
+    expect(n.wake).toBe(true);
+  });
+
+  test("a deploy follows: recommended", async () => {
+    expect((await say({ expectedDeploy: { jobs: ["DEPLOY - Dev", "DEPLOY - Prod"], approval: [] } })).text).toContain("the user's involvement is recommended: merging deploys (2 jobs)");
+  });
+
+  test("nothing deploys: the agent may merge if asked", async () => {
+    expect((await say({})).text).toContain("ready to merge; nothing deploys on merge, so the agent can merge if the user asked it to");
+  });
+});
+
+describe("the model says who can act on what it flags", () => {
+  test("something for a person informs; something for the agent wakes", async () => {
+    const changed = { review: "REVIEW_REQUIRED" as const };
+    const person = fakePorts({ snapshots: [aSnapshot("changed", changed)], verdicts: ['{"verdict":"notify","who":"person","reason":"a reviewer re-requested"}'] });
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: aFacts(changed) }), person, settings());
+    expect(person.notifications[0]!.wake).toBe(false);
+    const agent = fakePorts({ snapshots: [aSnapshot("changed", changed)], verdicts: ['{"verdict":"notify","who":"agent","reason":"a rollback in the logs"}'] });
+    await tick(watchStarted({ lastSnapshot: "before", lastFacts: aFacts(changed) }), agent, settings());
+    expect(agent.notifications[0]!.wake).toBe(true);
   });
 });

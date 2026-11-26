@@ -65,6 +65,18 @@ Each check reads the PR and the workflow runs on its merge commit and turns them
 - **How a watch ends:** the end wakes the agent (deployed, failed, closed), except a PR the `gh` user closed itself, which only informs. An event that says the same as the end ("deployed (merge pipeline succeeded)") is said once.
 - **Batches and digests:** messages for one session arriving within 30 seconds (one round of checks) are sent as one digest. For each batch involved, the digest adds progress like `approved 3/6 · merged 1/6 · done 0/6` (done: deployed, or merged where nothing deploys). Any watch on a batch PR, including a separate deploy watch after a merge, keeps the batch's numbers current. The batch ends when its last watch stops; a later merge starts its own, separate watch.
 
+## What goes to the session
+
+Every result of a check goes through one place in the plugin, which decides where it goes. **The pill and the PRs tab always show the current state** (the line's icon, the track, the comment badge). **The session only gets what the agent can act on, and that always wakes it:**
+
+- something to fix: failed checks or deploy (with a suggestion), changes requested, a conflict, a time limit passed;
+- comments: new ones, and unresolved threads when a watch starts;
+- **ready to merge**, saying whether the user has to be involved: *required* when the merge starts a deploy that needs an approval, *recommended* when it deploys, and otherwise that the agent can merge if the user asked it to;
+- the end of a watch (deployed, failed, closed by someone else);
+- something unexpected the model flags and says the agent can act on (it answers `who: "agent"` or `"person"`).
+
+**Status stays in the pill and the PRs tab:** progress, "now waiting for code review", merged or deploy started, a person's turn (a review, a run approval), the daily reminders, "Watching …" and "resumed …", and a PR the `gh` user closed. Over a week of real use that was 85 % of what used to be posted, and the agent's answer to it was text only. These are written to the debug log as `panel-only`.
+
 ## Starting many at once
 
 A watch on an open PR starts from one quick read of the PR (its state, review and checks), so `watch_pr` with 27 PRs answers in a few seconds. The full check (required checks, runs, Terraform plans, comments, expected deploy) follows right after in the background and becomes the baseline without being reported. Every GitHub call in the process goes through one queue, at most 6 at a time, and starting a watch goes ahead of background checks.

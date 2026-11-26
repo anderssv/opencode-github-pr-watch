@@ -301,6 +301,9 @@ export default Plugin.define({
         return before;
       },
       notify: async (sessionID, text, wake = false) => {
+        // The one router for what checks find: the session only gets what the agent can act on (it wakes for it);
+        // status (progress, a person's turn, reminders) is shown by the pill and the panel, which read the watch.
+        if (!wake) return void debug("panel-only", { sessionID, text: text.slice(0, 300) });
         const key = messageKey(sessionID, text);
         const now = Date.now();
         if (!shouldSend((await ctx.storage.get(key)) as number | undefined, now)) return;
@@ -408,10 +411,11 @@ export default Plugin.define({
       const last = (await ctx.storage.get(key)) as number | undefined;
       if (last !== undefined && Date.now() - last < 60_000) return;
       await ctx.storage.set(key, Date.now());
-      await inform(sessionID, text);
+      await deliver(sessionID, text, true);
     };
 
-    const inform = async (sessionID: string, text: string) => deliver(sessionID, text, false);
+    // Notes about the plugin's own doings ("Watching …", "resumed …") are status: the panel and the pill show them.
+    const inform = async (sessionID: string, text: string) => void debug("panel-only", { sessionID, text: text.slice(0, 300) });
     // Waking the agent (resume) is for what it has to act on.
     const deliver = async (sessionID: string, text: string, wake: boolean) => {
       await ctx.session.synthetic({ sessionID, text: `[pr-watch] ${text}`, delivery: "queue", resume: wake });
