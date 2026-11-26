@@ -967,3 +967,12 @@ describe("the model says who can act on what it flags", () => {
     expect(agent.notifications[0]!.wake).toBe(true);
   });
 });
+
+describe("a person's turn doesn't reach the session because the PR also has something for the agent", () => {
+  test("a run approval on a conflicting PR stays in the panel", async () => {
+    const conflict = { branch: "CONFLICT" as const, checks: "PENDING" as const };
+    const ports = fakePorts({ snapshots: [aSnapshot("approval", { ...conflict, waitingChecks: ["Plan"] })], verdicts: ['{"verdict":"wait"}'] });
+    await tick(watchStarted({ lastSnapshot: "conflict", lastFacts: aFacts(conflict) }), ports, settings());
+    expect(ports.notifications.every((n) => !n.wake)).toBe(true);
+  });
+});

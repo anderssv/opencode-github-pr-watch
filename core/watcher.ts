@@ -134,6 +134,8 @@ export interface TickResult {
 const ACTIVE_POLL_MS = 60_000;
 // A review arriving as many comments at once is read in one go, up to this many.
 const MAX_ANALYSED = 10;
+// Events that are a person's turn or status, not something for the agent to act on.
+const PERSON_OR_STATUS = /^(run approval needed|run approval given|approved|checks passed|now waiting|checks restarted|auto-merge (enabled|disabled)|merged; deploy started|deploy started|still waiting)/;
 const TRACK_EVERY_MS = 60_000;
 const RESUME_HINT = "call watch_pr again to resume";
 
@@ -417,7 +419,10 @@ async function tickInner(watch: Watch, ports: WatchPorts, settings: WatchSetting
   // Ready to merge goes to the agent (it may be the one to merge), saying whether the user has to be involved.
   const readyNow = nowReady && !quietWait && !facts.autoMerge;
   if (readyNow) found = found.map((event) => (event.endsWith("ready to merge") ? event.replace(/ready to merge$/, readyText(facts)) : event));
-  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, actor === "agent" || reviewed || readyNow);
+  // The PR's state saying it's the agent's turn isn't enough: what's said must be something for it. A person's turn
+  // (an approval, a review) or the PR moving on stays in the panel even on a PR that also has something to fix.
+  const forAgent = found.some((event) => !PERSON_OR_STATUS.test(event));
+  if (found.length > 0) await say(`${found.join("; ")}. ${summary}`, (actor === "agent" && forAgent) || reviewed || readyNow);
   // Progress within a step goes to the session as the track: information, never waking, at most once a minute.
   // The first check only notes it. Any other message this check already says where the PR is.
   const stages = progressTrack(facts, now);
